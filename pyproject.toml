@@ -1,0 +1,25 @@
+# FILE: pyproject.toml
+# MODULE: config — Python Project Metadata
+# EPIC: Architecture — Tooling Configuration
+# RESPONSIBILITY: Declare the Python project identity and the minimal tooling boundary for the scaffold.
+# EXPORTS: Project metadata and dependency placeholders.
+# DEPENDS_ON: None.
+# ACCEPTANCE_CRITERIA:
+#   - The project name and Python version target are declared.
+#   - No speculative dependency set is introduced beyond the approved architecture baseline.
+# HUMAN_REVIEW: No.
+
+[project]
+name = "pesquisa-material"
+version = "0.1.0"
+description = "School Material Price Finder (Brazil MVP) scaffold"
+requires-python = ">=3.12"
+
+dependencies = [
+  "django>=5.0",
+  "httpx>=0.27",
+  "beautifulsoup4>=4.12",
+  "playwright>=1.43",
+  "weasyprint>=61.0",
+  "psycopg[binary]>=3.1"
+]

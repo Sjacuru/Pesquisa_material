@@ -1,0 +1,21 @@
+# FILE: .gitignore
+# MODULE: support — Repository Ignore Rules
+# EPIC: Architecture — Repository Hygiene
+# RESPONSIBILITY: Exclude local secrets, caches, generated artifacts, and Python runtime noise from version control.
+# EXPORTS: Ignore rules for the repository.
+# DEPENDS_ON: None.
+# ACCEPTANCE_CRITERIA:
+#   - Local secrets and generated artifacts are excluded from version control.
+#   - Python cache and virtual-environment files are excluded.
+# HUMAN_REVIEW: No.
+
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+var/
+*.sqlite3
