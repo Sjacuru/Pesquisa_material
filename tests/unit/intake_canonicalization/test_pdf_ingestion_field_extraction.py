@@ -34,7 +34,16 @@ def test_ac1_valid_pdf_text_extracts_item_lines_with_fields() -> None:
 
 	assert len(items) == 2
 	assert "fields" in items[0]
-	assert set(items[0]["fields"].keys()) == {"name", "category", "quantity", "isbn"}
+	assert set(items[0]["fields"].keys()) == {
+		"name",
+		"category",
+		"quantity",
+		"isbn",
+		"school_exclusive",
+		"required_sellers",
+		"preferred_sellers",
+		"exclusive_source",
+	}
 
 
 def test_ac1_valid_pdf_bytes_extracts_items_without_external_dependency() -> None:
@@ -105,3 +114,32 @@ def test_ac2_applicable_category_field_is_present_per_item() -> None:
 	for item in items:
 		assert item["fields"]["category"]["value"] != ""
 		assert item["fields"]["category"]["confidence"] >= 0.0
+
+
+def test_ac1_exclusivity_defaults_when_no_marker_exists() -> None:
+	document = {
+		"content_type": "application/pdf",
+		"text": "Caderno universitario 2 un",
+	}
+
+	items = extract_item_candidates(document, _category_matrix())
+	fields = items[0]["fields"]
+
+	assert fields["school_exclusive"]["value"] is False
+	assert fields["required_sellers"]["value"] == []
+	assert fields["preferred_sellers"]["value"] == []
+
+
+def test_ac1_exclusivity_and_preferences_are_extracted_from_line_notation() -> None:
+	document = {
+		"content_type": "application/pdf",
+		"text": "Uniforme escolar somente Loja Alpha preferencial: Loja Beta, Loja Gama",
+	}
+
+	items = extract_item_candidates(document, _category_matrix())
+	fields = items[0]["fields"]
+
+	assert fields["school_exclusive"]["value"] is True
+	assert fields["required_sellers"]["value"] == ["Loja Alpha"]
+	assert fields["preferred_sellers"]["value"] == ["Loja Beta", "Loja Gama"]
+	assert fields["exclusive_source"]["value"] == "document_notation"

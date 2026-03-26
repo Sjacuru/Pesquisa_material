@@ -199,3 +199,47 @@ def test_accepts_portuguese_category_value_and_persists_canonical_category() -> 
 	assert output["editResult"]["status"] == "accepted"
 	assert output["editRecord"]["fieldName"] == "category"
 	assert output["editRecord"]["newValue"] == "book"
+
+
+def test_accepts_school_exclusive_boolean_edit() -> None:
+	store: list[dict] = []
+	output = handle_user_edit(
+		material_item=_material(),
+		edit_request={"fieldName": "school_exclusive", "oldValue": False, "newValue": True, "reasonNote": "school rule"},
+		user_context=_user(),
+		category_contract=_categories(),
+		local_edit_store=store,
+	)
+
+	assert output["editResult"]["status"] == "accepted"
+	assert output["editRecord"]["fieldName"] == "school_exclusive"
+	assert output["editRecord"]["newValue"] is True
+
+
+def test_accepts_portuguese_alias_for_school_exclusive_with_string_bool() -> None:
+	store: list[dict] = []
+	output = handle_user_edit(
+		material_item=_material(),
+		edit_request={"fieldName": "exclusivo_escola", "oldValue": False, "newValue": "sim", "reasonNote": "override"},
+		user_context=_user(),
+		category_contract=_categories(),
+		local_edit_store=store,
+	)
+
+	assert output["editResult"]["status"] == "accepted"
+	assert output["editRecord"]["fieldName"] == "school_exclusive"
+	assert output["editRecord"]["newValue"] is True
+
+
+def test_rejects_invalid_school_exclusive_value() -> None:
+	store: list[dict] = []
+	output = handle_user_edit(
+		material_item=_material(),
+		edit_request={"fieldName": "school_exclusive", "oldValue": False, "newValue": "maybe", "reasonNote": ""},
+		user_context=_user(),
+		category_contract=_categories(),
+		local_edit_store=store,
+	)
+
+	assert output["editResult"]["status"] == "rejected"
+	assert output["editResult"]["reasonCode"] == "schema_violation"

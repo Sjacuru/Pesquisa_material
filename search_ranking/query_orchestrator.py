@@ -48,6 +48,7 @@ def orchestrate_query(
 	source_query_executor,
 	max_result_buffer: int = MAX_RESULT_BUFFER,
 	source_timeout_seconds: float = SOURCE_TIMEOUT_SECONDS,
+	exclusivity_context: dict | None = None,
 ) -> dict[str, object]:
 	"""
 	Coordinate source queries and aggregate partial results for classifier stage.
@@ -92,7 +93,61 @@ def orchestrate_query(
 			},
 		}
 
+	if isinstance(exclusivity_context, dict):
+		resolution_status = str(exclusivity_context.get("resolution_status") or "").lower()
+		if resolution_status == "review_required":
+			return {
+				"aggregatedResults": {
+					"resultChunks": [],
+					"completionStatus": "review_required",
+					"rejectionReason": str(exclusivity_context.get("resolution_reason") or "school_exclusivity_review_required"),
+				},
+				"sourceMetadata": {
+					"queriedCount": 0,
+					"timeoutCount": 0,
+					"errorCount": 0,
+					"sourceUnavailableEvents": [],
+					"dispatchWindowMs": 0.0,
+					"bufferOverflowed": False,
+					"droppedResultsCount": 0,
+					"exclusivityApplied": True,
+				},
+			}
+
 	filtered_sources = [source for source in eligible_sources if _is_source_eligible(source)]
+
+	if isinstance(exclusivity_context, dict):
+		mandatory_sources = exclusivity_context.get("mandatory_sources") or []
+		school_exclusive = bool(exclusivity_context.get("school_exclusive", False))
+		if mandatory_sources:
+			allowed = {
+				str(site_id).strip().lower()
+				for site_id in mandatory_sources
+				if str(site_id).strip()
+			}
+			filtered_sources = [
+				source
+				for source in filtered_sources
+				if str(source.get("site_id") or source.get("id") or "").strip().lower() in allowed
+			]
+		elif school_exclusive:
+			return {
+				"aggregatedResults": {
+					"resultChunks": [],
+					"completionStatus": "review_required",
+					"rejectionReason": str(exclusivity_context.get("resolution_reason") or "no_active_required_sellers"),
+				},
+				"sourceMetadata": {
+					"queriedCount": 0,
+					"timeoutCount": 0,
+					"errorCount": 0,
+					"sourceUnavailableEvents": [],
+					"dispatchWindowMs": 0.0,
+					"bufferOverflowed": False,
+					"droppedResultsCount": 0,
+					"exclusivityApplied": True,
+				},
+			}
 
 	timeout_count = 0
 	error_count = 0
@@ -162,5 +217,6 @@ def orchestrate_query(
 			"dispatchWindowMs": dispatch_window_ms,
 			"bufferOverflowed": buffer_overflowed,
 			"droppedResultsCount": dropped_results_count,
+			"exclusivityApplied": isinstance(exclusivity_context, dict),
 		},
 	}

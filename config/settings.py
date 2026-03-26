@@ -17,12 +17,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "local-dev-only-change-me")
 DEBUG = os.getenv("APP_DEBUG", "true").lower() == "true"
+WEBSEARCH_ENABLED = os.getenv("WEBSEARCH_ENABLED", "true").lower() == "true"
+SCHOOL_EXCLUSIVE_ENABLED = os.getenv("SCHOOL_EXCLUSIVE_ENABLED", "false").lower() == "true"
 
 ALLOWED_HOSTS = [host.strip() for host in os.getenv("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost").split(",") if host.strip()]
 
 INSTALLED_APPS = [
 	"django.contrib.contenttypes",
 	"django.contrib.staticfiles",
+	"persistence.apps.PersistenceConfig",
 ]
 
 MIDDLEWARE = [
@@ -31,7 +34,18 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "config.urls"
-TEMPLATES = []
+TEMPLATES = [
+	{
+		"BACKEND": "django.template.backends.django.DjangoTemplates",
+		"DIRS": [BASE_DIR / "web" / "templates"],
+		"APP_DIRS": True,
+		"OPTIONS": {
+			"context_processors": [
+				"django.template.context_processors.request",
+			],
+		},
+	}
+]
 WSGI_APPLICATION = None
 ASGI_APPLICATION = "config.asgi.application"
 

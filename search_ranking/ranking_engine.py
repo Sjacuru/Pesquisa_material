@@ -107,11 +107,16 @@ def _percentile_25(scores: list[float]) -> float:
 	return ordered[index]
 
 
+def _normalized_site_id(value: object) -> str:
+	return str(value or "").strip().lower()
+
+
 def rank_results(
 	classified_results: dict,
 	score_weights: dict[str, float] | None,
 	source_reputation_index: dict[str, object],
 	query_text: str = "",
+	preferred_sellers: list[str] | None = None,
 ) -> dict[str, object]:
 	"""
 	Rank classified results by deterministic composite score and normalize to 0-100.
@@ -124,6 +129,11 @@ def rank_results(
 	)
 
 	scored_rows: list[dict] = []
+	preferred_site_ids = {
+		_normalized_site_id(site_id)
+		for site_id in (preferred_sellers or [])
+		if _normalized_site_id(site_id)
+	}
 	for index, item in enumerate(items):
 		site_id = str(item.get("source_id") or "")
 		reputation_score = _reputation_from_failure_rate(site_id, source_reputation_index)
@@ -147,12 +157,17 @@ def rank_results(
 				"original_index": index,
 				"item": dict(item),
 				"composite_score": composite_score,
+				"is_preferred_seller": _normalized_site_id(site_id) in preferred_site_ids,
 			}
 		)
 
 	sorted_rows = sorted(
 		scored_rows,
-		key=lambda row: (-row["composite_score"], row["original_index"]),
+		key=lambda row: (
+			-row["composite_score"],
+			-int(row["is_preferred_seller"]),
+			row["original_index"],
+		),
 	)
 
 	raw_sorted_scores = [row["composite_score"] for row in sorted_rows]
@@ -166,6 +181,7 @@ def rank_results(
 			"composite_score": round(row["composite_score"], 6),
 			"normalized_score": round(normalized_score, 2),
 			"low_confidence_flag": normalized_score <= percentile_25,
+			"is_preferred_seller": bool(row["is_preferred_seller"]),
 		}
 		ranked_output_results.append(result)
 

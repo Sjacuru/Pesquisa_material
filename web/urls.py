@@ -11,9 +11,12 @@
 
 from django.urls import path
 
-from web.views import health
+from web.views import exclusivity_demo, exclusivity_review, health, upload_workflow
 
 
 urlpatterns = [
 	path("", health, name="health"),
+	path("workflow/upload/", upload_workflow, name="upload-workflow"),
+	path("workflow/exclusivity/demo/", exclusivity_demo, name="exclusivity-demo"),
+	path("workflow/exclusivity/review/", exclusivity_review, name="exclusivity-review"),
 ]

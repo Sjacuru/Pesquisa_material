@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Exclusivity Demo</title>
+  <style>
+    body { font-family: sans-serif; max-width: 960px; margin: 24px auto; padding: 0 16px; }
+    nav { background: #f0f0f0; padding: 8px 12px; margin-bottom: 24px; border-radius: 4px; }
+    nav a { margin-right: 16px; text-decoration: none; color: #0066cc; }
+    nav a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <strong>Workflow:</strong>
+    <a href="/workflow/upload/">Upload &amp; Batch Review</a>
+    <a href="/workflow/exclusivity/demo/">&#8250; Demo Scenarios</a>
+    <a href="/workflow/exclusivity/review/">Manual Review</a>
+  </nav>
+
+  <h1>Exclusivity Demo Scenarios</h1>
+  <p>This page shows one eligible and one review_required scenario using MODULE-003-05 + MODULE-003-01.</p>
+
+  {% for scenario in scenarios %}
+    <hr />
+    <h2>{{ scenario.name }}</h2>
+    <p><strong>item:</strong> {{ scenario.item_name }}</p>
+    <p><strong>resolution_status:</strong> {{ scenario.resolution_status }}</p>
+    <p><strong>resolution_reason:</strong> {{ scenario.resolution_reason }}</p>
+    <p><strong>mandatory_sources:</strong> {{ scenario.mandatory_sources }}</p>
+    <p><strong>completion_status:</strong> {{ scenario.completion_status }}</p>
+    <p><strong>queried_count:</strong> {{ scenario.queried_count }}</p>
+    <p><strong>result_count:</strong> {{ scenario.result_count }}</p>
+    <p><strong>rejection_reason:</strong> {{ scenario.rejection_reason }}</p>
+  {% endfor %}
+
+  <hr />
+  <p><a href="/workflow/exclusivity/review/">Open manual exclusivity review screen</a> &nbsp;|&nbsp;
+     <a href="/workflow/upload/">Upload &amp; Batch Review</a></p>
+</body>
+</html>

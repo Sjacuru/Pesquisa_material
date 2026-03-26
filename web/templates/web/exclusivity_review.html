@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Exclusivity Review</title>
+  <style>
+    body { font-family: sans-serif; max-width: 960px; margin: 24px auto; padding: 0 16px; }
+    nav { background: #f0f0f0; padding: 8px 12px; margin-bottom: 24px; border-radius: 4px; }
+    nav a { margin-right: 16px; text-decoration: none; color: #0066cc; }
+    nav a:hover { text-decoration: underline; }
+    .badge-eligible { background: #d4edda; color: #155724; padding: 2px 8px; border-radius: 10px; }
+    .badge-review { background: #fff3cd; color: #856404; padding: 2px 8px; border-radius: 10px; }
+    .back-link { margin-bottom: 16px; display: block; }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <strong>Workflow:</strong>
+    <a href="/workflow/upload/">Upload &amp; Batch Review</a>
+    <a href="/workflow/exclusivity/demo/">Demo Scenarios</a>
+    <a href="/workflow/exclusivity/review/">&#8250; Manual Review</a>
+  </nav>
+
+  {% if back_url %}
+    <a class="back-link" href="{{ back_url }}">&larr; Back to upload results</a>
+  {% endif %}
+
+  <h1>School Exclusivity Review</h1>
+
+  <form method="post">
+    {% csrf_token %}
+
+    <label>Item name</label><br />
+    <input type="text" name="item_name" value="{{ form_values.item_name }}" /><br /><br />
+
+    <label>Required sellers (comma-separated)</label><br />
+    <input type="text" name="required_sellers" value="{{ form_values.required_sellers }}" /><br /><br />
+
+    <label>Preferred sellers (comma-separated)</label><br />
+    <input type="text" name="preferred_sellers" value="{{ form_values.preferred_sellers }}" /><br /><br />
+
+    <label>Active sources (comma-separated site IDs)</label><br />
+    <input type="text" name="active_sources" value="{{ form_values.active_sources }}" /><br /><br />
+
+    <label>
+      <input type="checkbox" name="school_exclusive" {% if form_values.school_exclusive %}checked{% endif %} />
+      school_exclusive
+    </label>
+    <br /><br />
+
+    <label>exclusive_source</label><br />
+    <select name="exclusive_source">
+      <option value="document_notation" {% if form_values.exclusive_source == "document_notation" %}selected{% endif %}>document_notation</option>
+      <option value="user_annotation" {% if form_values.exclusive_source == "user_annotation" %}selected{% endif %}>user_annotation</option>
+      <option value="default" {% if form_values.exclusive_source == "default" %}selected{% endif %}>default</option>
+    </select>
+    <br /><br />
+
+    <button type="submit">Resolve & Simulate Query</button>
+  </form>
+
+  {% if result %}
+    <h2>Resolution</h2>
+    <p>
+      <strong>status:</strong>
+      {% if result.resolution_status == "eligible" %}
+        <span class="badge-eligible">eligible</span>
+      {% else %}
+        <span class="badge-review">review_required</span>
+      {% endif %}
+    </p>
+    <p><strong>reason:</strong> {{ result.resolution_reason }}</p>
+    <p><strong>mandatory_sources:</strong> {{ result.mandatory_sources|join:", " }}</p>
+    <p><strong>preferred_sources:</strong> {{ result.preferred_sources|join:", " }}</p>
+    {% if result.conflicts %}
+      <p><strong>conflicts:</strong></p>
+      <ul>
+        {% for c in result.conflicts %}
+          <li>{{ c.conflict_type }}{% if c.blocked_sellers %} &mdash; blocked: {{ c.blocked_sellers|join:", " }}{% endif %}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p><strong>conflicts:</strong> none</p>
+    {% endif %}
+
+    <h2>Query outcome</h2>
+    <p><strong>completion_status:</strong> {{ query_outcome.completion_status }}</p>
+    {% if query_outcome.rejection_reason %}
+      <p><strong>rejection_reason:</strong> {{ query_outcome.rejection_reason }}</p>
+    {% endif %}
+    <p><strong>queried_count:</strong> {{ query_outcome.queried_count }}</p>
+    <p><strong>result_count:</strong> {{ query_outcome.result_count }}</p>
+
+    {% if back_url %}
+      <p><a href="{{ back_url }}">&larr; Back to upload results</a></p>
+    {% endif %}
+  {% endif %}
+</body>
+</html>

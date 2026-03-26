@@ -21,6 +21,7 @@ EDITABLE_FIELDS = {
 	"subtitle",
 	"notes",
 	"local_metadata_tags",
+	"school_exclusive",
 }
 
 IMMUTABLE_FIELDS = {
@@ -52,6 +53,8 @@ FIELD_ALIASES = {
 	"local_metadata_tags": "local_metadata_tags",
 	"metadados_locais": "local_metadata_tags",
 	"tags_metadados_locais": "local_metadata_tags",
+	"school_exclusive": "school_exclusive",
+	"exclusivo_escola": "school_exclusive",
 	"source_id": "source_id",
 	"id_fonte": "source_id",
 	"extraction_timestamp": "extraction_timestamp",
@@ -107,6 +110,17 @@ def _canonical_category_value(category_value: object) -> str:
 		_normalize_text(category_value),
 		_normalize_text(category_value),
 	)
+
+
+def _parse_bool(value: object) -> bool | None:
+	if isinstance(value, bool):
+		return value
+	normalized = _normalize_text(value)
+	if normalized in {"true", "1", "yes", "y", "sim", "s"}:
+		return True
+	if normalized in {"false", "0", "no", "n", "nao", "não"}:
+		return False
+	return None
 
 
 def handle_user_edit(
@@ -168,6 +182,20 @@ def handle_user_edit(
 				"editRecord": None,
 			}
 		new_value = candidate
+
+	if field_name == "school_exclusive":
+		parsed = _parse_bool(new_value)
+		if parsed is None:
+			return {
+				"editResult": {
+					"status": "rejected",
+					"reasonCode": "schema_violation",
+					"persistedEditId": None,
+					"acceptedAt": None,
+				},
+				"editRecord": None,
+			}
+		new_value = parsed
 
 	if _is_blank(new_value) and field_name not in BLANK_ALLOWED_FIELDS:
 		return {

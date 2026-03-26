@@ -146,3 +146,43 @@ def test_portuguese_classification_labels_are_supported_in_scoring() -> None:
 
 	assert len(results) == 2
 	assert results[0]["classification_label"] in {"Livro Didático", "Referência"}
+
+
+def test_preferred_seller_is_used_as_secondary_tie_break_only() -> None:
+	classified = {
+		"results": [
+			{"source_id": "s1", "title": "Same", "classification_label": "Other", "recency_days": 30},
+			{"source_id": "s2", "title": "Same", "classification_label": "Other", "recency_days": 30},
+		]
+	}
+
+	output = rank_results(
+		classified,
+		_weights(),
+		{"s1": 0.2, "s2": 0.2},
+		query_text="same",
+		preferred_sellers=["s2"],
+	)
+
+	ordered_sources = [item["source_id"] for item in output["rankedResults"]["results"]]
+	assert ordered_sources == ["s2", "s1"]
+
+
+def test_preferred_seller_does_not_override_higher_composite_score() -> None:
+	classified = {
+		"results": [
+			{"source_id": "best", "title": "Exact Match", "classification_label": "Textbook", "recency_days": 1},
+			{"source_id": "pref", "title": "Weak", "classification_label": "Other", "recency_days": 300},
+		]
+	}
+
+	output = rank_results(
+		classified,
+		_weights(),
+		{"best": 0.0, "pref": 0.9},
+		query_text="exact match",
+		preferred_sellers=["pref"],
+	)
+
+	ordered_sources = [item["source_id"] for item in output["rankedResults"]["results"]]
+	assert ordered_sources[0] == "best"

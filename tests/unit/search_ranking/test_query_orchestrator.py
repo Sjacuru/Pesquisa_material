@@ -119,3 +119,48 @@ def test_dispatch_window_within_50ms_for_all_sources() -> None:
 	)
 
 	assert result["sourceMetadata"]["dispatchWindowMs"] <= 50.0
+
+
+def test_review_required_status_is_returned_when_exclusivity_requires_manual_review() -> None:
+	result = orchestrate_query(
+		query={"text": "uniforme", "categoryID": "general supplies"},
+		validation_result={"is_valid": True, "dependency_chain_validated": True},
+		eligible_sources=[{"site_id": "s1", "is_search_eligible": True}],
+		source_query_executor=_ok_executor,
+		exclusivity_context={
+			"school_exclusive": True,
+			"resolution_status": "review_required",
+			"resolution_reason": "no_active_required_sellers",
+		},
+	)
+
+	assert result["aggregatedResults"]["completionStatus"] == "review_required"
+	assert result["aggregatedResults"]["rejectionReason"] == "no_active_required_sellers"
+	assert result["sourceMetadata"]["queriedCount"] == 0
+
+
+def test_exclusive_mandatory_sources_filter_query_scope() -> None:
+	called_sites: list[str] = []
+
+	def executor(source: dict, query: dict, timeout_seconds: float) -> dict:
+		called_sites.append(source["site_id"])
+		return {"results": [{"title": source["site_id"]}]}
+
+	result = orchestrate_query(
+		query={"text": "uniforme", "categoryID": "general supplies"},
+		validation_result={"is_valid": True, "dependency_chain_validated": True},
+		eligible_sources=[
+			{"site_id": "required-site", "is_search_eligible": True},
+			{"site_id": "other-site", "is_search_eligible": True},
+		],
+		source_query_executor=executor,
+		exclusivity_context={
+			"school_exclusive": True,
+			"resolution_status": "eligible",
+			"mandatory_sources": ["required-site"],
+		},
+	)
+
+	assert called_sites == ["required-site"]
+	assert result["sourceMetadata"]["queriedCount"] == 1
+	assert result["aggregatedResults"]["completionStatus"] == "complete"
