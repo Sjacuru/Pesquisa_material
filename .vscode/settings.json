@@ -1,6 +1,7 @@
 {
   "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
 "python.analysis.diagnosticMode": "workspace",
-"python-envs.defaultEnvManager": "ms-python.python:venv",
-"python-envs.defaultPackageManager": "ms-python.python:pip"
+"python-envs.defaultEnvManager": "ms-python.python:conda",
+"python-envs.defaultPackageManager": "ms-python.python:conda",
+"workbench.browser.enableChatTools": true
 }

@@ -100,7 +100,34 @@ def test_ac2_output_is_deterministic_for_same_input() -> None:
 	first = extract_item_candidates(document, _category_matrix())
 	second = extract_item_candidates(document, _category_matrix())
 
-	assert first == second
+	assert len(first) == len(second)
+	for first_item, second_item in zip(first, second):
+		assert first_item["line_index"] == second_item["line_index"]
+		assert first_item["line_text"] == second_item["line_text"]
+		assert first_item["fields"] == second_item["fields"]
+		assert first_item["decision_source"] == second_item["decision_source"] == "deterministic"
+		assert first_item["directive_confidence"] == second_item["directive_confidence"]
+		assert first_item["directive_resolved"] == second_item["directive_resolved"]
+
+
+def test_stage_a_contract_fields_are_present() -> None:
+	document = {
+		"content_type": "application/pdf",
+		"text": "Uniforme escolar somente Loja Alpha",
+	}
+
+	items = extract_item_candidates(document, _category_matrix())
+	item = items[0]
+
+	assert item["decision_source"] == "deterministic"
+	assert isinstance(item["directive_confidence"], float)
+	assert 0.0 <= item["directive_confidence"] <= 1.0
+	assert isinstance(item["directive_resolved"], bool)
+	assert item["requires_human_review"] is None
+	assert item["llm_rationale"] is None
+	assert item["llm_model_id"] is None
+	assert item["directive_extraction_timestamp"] is not None
+	assert isinstance(item["document_notation_rules"], dict)
 
 
 def test_ac2_applicable_category_field_is_present_per_item() -> None:

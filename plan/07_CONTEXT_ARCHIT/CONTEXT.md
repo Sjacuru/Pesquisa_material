@@ -2,14 +2,26 @@
 ## Pipeline Traveling Context — Controlled Handoff Document
 
 **Written by:** PRD Phase  
-**Updated by:** MDAP Phase  
-**Read by:** EPIC · MDAP · Architecture · Folder/File Structure  
-**Date:** March 25, 2026  
+**Updated by:** MDAP Phase, Architecture Phase  
+**Amended by:** CIR-002/MIA-001 (AI Directive Extraction Fallback) — PENDING APPROVAL; PRD Addendum FR-024..FR-026 (Foundation Pipeline Expansion) — APPROVED; EPIC Amendment 004 (Chunk 4 / FR-024) — PENDING APPROVAL; Deployment Readiness Governance Reclassification (Implementation DOR) — APPLIED  
+**Read by:** EPIC · MDAP · Architecture · Folder/File Structure · Implementation  
+**Date (Original):** March 25, 2026  
+**Date (Last Amendment):** March 26, 2026  
 **Project:** School Material Price Finder (Brazil MVP)
 
 ---
 
 ## TRAVELING_CONTEXT
+
+### Amendment Status
+This document contains amendment blocks reflecting:
+- PRD Addendum FR-023 (AI-assisted directive extraction fallback)
+- EPIC Amendment CIR-002 (EPIC-001 extension with 3 new modules)
+- MDAP MIA-001 (impact assessment pending human gate approval)
+- PRD Addendum FR-024..FR-026 (Foundation Pipeline Expansion) — approved at PRD level
+- EPIC Amendment 004 (Chunk 4 / FR-024 Conservative OCR Ingestion) — pending stakeholder sign-off
+
+⚠️ CAUTION: PRD-approved FR/NFR additions are canonical requirements. Downstream module inventories and architecture/module details remain non-canonical until the related EPIC/MDAP amendment artifacts are approved.
 
 ### Scope Ceiling (Canonical)
 ```
@@ -19,11 +31,16 @@ lists from mixed document formats while controlling total spend.
 ```
 
 ### Canonical ID Ranges (Locked — No Renumbering Downstream)
-- **Functional Requirements:** FR-001 through FR-021 (21 total)
-- **Non-Functional Requirements:** NFR-001 through NFR-005 (5 total)
+- **Functional Requirements:** FR-001 through FR-026 (26 total)
+- **Non-Functional Requirements:** NFR-001 through NFR-007 (7 total)
+- **Canonical EPIC Inventory:** EPIC-001 through EPIC-004 (4 total)
 - **User Personas:** PERSONA-001 (1 total — see assumptions)
-- **Success Metrics:** SM-001 through SM-011+ (post-launch validation)
-- **Open Questions:** OQ-001 through OQ-012+ (unresolved items)
+- **Success Metrics:** SM-001 through SM-024+ (post-launch validation)
+- **Open Questions:** OQ-001 through OQ-012+, plus amendment-specific OQ-FR024..OQ-FR026 identifiers
+
+### Governance Classification Note
+- Deployment readiness planning is an implementation-layer artifact (`plan/06_Implementation/DEPLOYMENT_READINESS_DOR.md` and `plan/06_Implementation/PROMPT-7_DEPLOYMENT_EXECUTION_BACKLOG.md`).
+- It does not constitute a functional EPIC and does not alter canonical EPIC inventory or FR/NFR counts.
 
 ### Hard Constraints (Confirmed Non-Negotiable)
 - Identifier permanence (GC-8): All FR/NFR IDs are canonical across entire pipeline. Do NOT renumber, merge, split, or rename.
@@ -43,9 +60,9 @@ Explicitly deferred features (documented in PRD Section 7):
 - Payment processing or cart integration
 
 ### Pipeline Stage
-**Current:** MDAP (complete)  
-**Next:** System Architecture  
-**Full sequence:** PRD → EPIC → MDAP → System Architecture → Folder/File Structure
+**Current:** Amendment propagation (baseline MDAP complete; approved PRD amendment for FR-024..FR-026; Chunk 4 EPIC amendment pending sign-off)  
+**Next:** MDAP Amendment for Chunk 4 after EPIC amendment approval  
+**Full sequence:** PRD → EPIC → MDAP → System Architecture → Folder/File Structure, with approved amendment flow applied where required
 
 ---
 
@@ -53,7 +70,7 @@ Explicitly deferred features (documented in PRD Section 7):
 
 This block is the structured data payload for EPIC consumption. Extract and reference during Epic decomposition.
 
-### FR_IN_SCOPE (21 Functional Requirements)
+### FR_IN_SCOPE (26 Functional Requirements)
 
 **Data Extraction & Validation (FR-001 to FR-009):**
 - FR-001: Extract mixed-PDF item fields reliably
@@ -84,7 +101,16 @@ This block is the structured data payload for EPIC consumption. Extract and refe
 - FR-020: Export results to PDF, CSV, and JSON
 - FR-021: Route Apostila to external sources
 
-### NFR_MUST_SHOULD (5 Non-Functional Requirements)
+**Directive and Exclusivity Expansion (FR-022 to FR-023):**
+- FR-022: Resolve school-defined seller exclusivity constraints
+- FR-023: Apply AI-assisted directive extraction fallback under controlled reconciliation
+
+**Foundation Pipeline Expansion (FR-024 to FR-026):**
+- FR-024: Apply conservative multi-format ingestion with PDF text-vs-image routing at 0.70 threshold
+- FR-025: Persist end-to-end pipeline state in SQLite across materials, extracted fields, search runs, offers, and report rows
+- FR-026: Use real source adapters for website data acquisition with controlled runtime behavior
+
+### NFR_MUST_SHOULD (7 Non-Functional Requirements)
 
 | ID | Priority | Requirement |
 |---|---|---|
@@ -93,6 +119,8 @@ This block is the structured data payload for EPIC consumption. Extract and refe
 | NFR-003 | SHOULD | Preserve versioned change history records |
 | NFR-004 | SHOULD | Track website health and suspensions |
 | NFR-005 | COULD | Expose configurable log-retention and query filters for diagnostics |
+| NFR-006 | SHOULD | Multi-library extraction resilience with >=95% completion and zero silent loss |
+| NFR-007 | COULD | OCR/extraction observability and library swappability |
 
 ### PERSONAS (1 User Type)
 
@@ -178,9 +206,9 @@ This block is the structured data payload for EPIC consumption. Extract and refe
 
 ### Scope Creep Validation
 
-- [ ] Verify no new FRs introduced. FR count remains 21. ✓
+- [ ] Verify no unapproved FRs introduced. FR count is 26 including approved FR-024..FR-026. ✓
 - [ ] Verify no new out-of-scope items added without justification. ✓
-- [ ] Verify CONTEXT.md matches PRD Phase 1 output exactly. ✓
+- [ ] Verify CONTEXT.md matches approved PRD baseline plus approved addenda only. ✓
 
 ### Gate Status: READY FOR EPIC?
 
@@ -205,7 +233,7 @@ This block is the structured data payload for EPIC consumption. Extract and refe
 - Reference PRD-to-EPIC-INTEGRATION-GUIDE.md for complete dependency map
 - Do NOT introduce new personas without amending PRD
 - Do NOT invent thresholds for [THRESHOLD NEEDED] items
-- Ensure all FR IDs (FR-001 to FR-021) remain locked and immutable
+- Ensure all FR IDs (FR-001 to FR-026) remain locked and immutable
 
 ### For MDAP Phase
 - Historical note: MDAP completed with 19 approved modules across 4 Epics
@@ -220,6 +248,7 @@ This block is the structured data payload for EPIC consumption. Extract and refe
 - Use scope ceiling as reference for architecture boundary
 - Do NOT propose features outside out-of-scope list without PRD amendment
 - FR-020 supported export formats are resolved for Architecture as PDF, CSV, and JSON
+- Approved FR-024..FR-026 must be treated as in-scope requirements even where downstream EPIC/MDAP amendments remain pending
 
 ### For Folder/File Structure Phase
 - Final artifact naming and organization should reference canonical FR/NFR IDs
@@ -294,6 +323,48 @@ This block is the structured handoff payload from MDAP to Architecture. It recor
 
 ---
 
+## APPROVED_AMENDMENT_BLOCK — FR-024..FR-026 FOUNDATION PIPELINE EXPANSION
+
+**Status:** PRD APPROVED  
+**Date:** March 26, 2026
+
+### Requirement Additions
+- FR-024: Conservative multi-format ingestion with PDF text-vs-image routing
+- FR-025: SQLite-backed persisted pipeline state
+- FR-026: Real source adapters with controlled runtime behavior
+- NFR-006: Extraction resilience
+- NFR-007: OCR/extraction observability and swappability
+
+### Boundary Notes
+- These additions stay within the existing scope ceiling of mixed document formats and school-material price comparison.
+
+### Downstream Propagation Status
+- Stage A Implementation Scaffolding (Chunk 4): Complete ✅, 41/41 AC tests passing
+  - MODULE-001-11 (File Type Detection): 12 tests ✅
+  - MODULE-001-12 (PDF Coverage Router): 14 tests ✅
+  - MODULE-001-13 (OCR Processor): 15 tests ✅
+  - PROMPT-3 Implementation Guide: Complete
+- EPIC Amendment 004 (Chunk 4 / FR-024): Approved ✅
+- MDAP amendment for Chunk 4 (MIA-002): Approved ✅ (Gate Passed)
+- Stage A implementation started ✅
+  - A1/A4 kickoff: `stage_a_ingestion_pipeline.py` integrated as new entry orchestration
+  - Stage A focused test suite: 45/45 passing
+- Stage A2 hardening update ✅
+  - MODULE-001-12 coverage computation upgraded from file-size stub to PDF marker analysis
+  - Two-column, table-heavy, and uncertain-region heuristics implemented
+  - Deterministic runtime assertions validated for native_text vs ocr routing and layout flags
+- Stage A3 hardening update ✅
+  - MODULE-001-13 upgraded with pluggable OCR invocation (`ocr_invoke_fn`) via context
+  - Failure propagation hardened for engine exceptions, low-signal payloads, and explicit error reasons
+  - Partial-success behavior preserved with page-aware output mapping and review_required markers
+  - Runtime assertions validated injected-engine success and exception paths
+- Stage A4 integration hardening update ✅
+  - Added Stage A → MODULE-001-02 adapter: `to_confidence_handoff_items(...)`
+  - Handoff preserves `extraction_source` (native_text/ocr/routing), confidence, and review-required semantics
+  - Added integration coverage for native path, OCR path, and forced review path handoff behavior
+  - Runtime assertions validated OCR-route handoff compatibility with confidence gating
+
+
 ## Governance References
 
 - **Constraint Rules:** GC-1 through GC-9 enforced in PRD Phase (see PRD Blueprint v2.0)
@@ -303,9 +374,9 @@ This block is the structured handoff payload from MDAP to Architecture. It recor
 
 ---
 
-**CONTEXT.md Status:** ✅ UPDATED THROUGH MDAP  
-**Last Updated:** March 25, 2026  
-**Next Handoff:** MDAP → System Architecture
+**CONTEXT.md Status:** ✅ UPDATED THROUGH CHUNK 4 EPIC/MDAP APPROVAL | ✅ STAGE A IMPLEMENTATION STARTED  
+**Last Updated:** March 26, 2026 (EPIC/MDAP approved; Stage A kickoff recorded)  
+**Next Handoff:** Continue Stage A implementation (A1 -> A2 -> A3 -> A4 integration hardening)
 
 **Modify this file only through approved phase-handoff merges. Treat it as the canonical traveling context.**
 
@@ -424,3 +495,167 @@ This block is the structured handoff payload from MDAP to Architecture. It recor
 **CONTEXT.md Status:** ✅ UPDATED THROUGH FOLDER/FILE STRUCTURE  
 **Last Updated:** March 25, 2026  
 **Next Handoff:** Folder/File Structure → Implementation
+
+---
+
+## ⚠️ AMENDMENT_BLOCK: CIR-002 / MIA-001 — AI Directive Extraction Fallback (FR-023)
+
+**Status**: PENDING HUMAN GATE APPROVAL (Stages B–D blocked on threshold resolution; Stage A approvable independently)  
+**Amendment Date**: March 27, 2026  
+**References**:
+- PRD_ADDENDUM_FR023_AI_DIRECTIVE_EXTRACTION.md (DRAFT — pending sign-off)
+- EPIC_AMENDMENT_001_CIR002_AI_DIRECTIVE_EXTRACTION.md (PENDING MDAP MIA-001 APPROVAL)
+- MDAP_MIA-001_EPIC-001_AI_DIRECTIVE_EXTRACTION.md (PENDING HUMAN GATE APPROVAL)
+
+---
+
+### ⛔ CRITICAL: PROPOSED, NOT CANONICAL
+
+DO NOT use amended ID ranges, module counts, thresholds, or high-risk files from this block as current baseline.
+
+All values below are conditional and pending approval of all three change documents:
+- PRD Addendum FR-023 sign-off
+- EPIC Amendment CIR-002 approval
+- MDAP MIA-001 human-gate approval
+
+During the pending period, baseline sections above remain canonical. This amendment block describes the proposed post-approval state.
+
+### Amendment Approval Paths
+
+**Path A — APPROVED**
+- Amendment values are merged into baseline sections.
+- This block is archived as historical change record.
+- CONTEXT status is updated to approved amendment state.
+
+**Path B — CONDITIONAL**
+- This block is updated with explicit conditions and deadlines.
+- Conditional status remains until all conditions are satisfied.
+
+**Path C — REJECTED / REWORK REQUIRED**
+- This block is marked rejected and superseded by a revised amendment submission.
+- Baseline sections above remain fully canonical.
+
+---
+
+### PROPOSED_AMENDED_CANONICAL_ID_RANGES (PENDING APPROVAL)
+
+The following ranges will supersede the baseline `Canonical ID Ranges` only after all amendment approvals are complete.
+
+- **Functional Requirements**: FR-001 through FR-023 (23 total; FR-022 via PRD_ADDENDUM_FR022, FR-023 via PRD_ADDENDUM_FR023)
+- **Non-Functional Requirements**: NFR-001 through NFR-005 (5 total — unchanged)
+- **User Personas**: PERSONA-001 (1 total — unchanged)
+- **EPICs**: EPIC-001 through EPIC-004 (4 total — unchanged; EPIC-001 and EPIC-003 amended via CIR)
+- **EPIC CIRs**: CIR-001 (EPIC-003 MODULE-003-05, PENDING), CIR-002 (EPIC-001 AI Directive Extraction, PENDING)
+- **MDAP Change Records**: MIA-001 (EPIC-001 AI Directive Extraction, PENDING)
+- **Thresholds**: THRESHOLD-LLM-01 through THRESHOLD-LLM-05 (5 total new; all [THRESHOLD NEEDED] — pending stakeholder decisions)
+
+---
+
+### AMENDED_MODULE_REGISTRY
+
+**EPIC-001 Modules (10 total — was 7; +3 via CIR-002, all PENDING)**
+
+| Module ID | Name | FRs | Risk | Status |
+|-----------|------|-----|------|--------|
+| MODULE-001-01 | PDF Ingestion & Field Extraction | FR-001 | HIGH | Approved (extended: emits notation_rules dict) |
+| MODULE-001-02 | Confidence Gating Router | FR-002 | MEDIUM | Approved (extended: separate directive gating lane) |
+| MODULE-001-03 | Quantity & Unit Normalizer | FR-003 | MEDIUM | Approved (unchanged) |
+| MODULE-001-04 | Duplicate Resolution Coordinator | FR-004 | HIGH | Approved (unchanged) |
+| MODULE-001-05 | Category Rules & Eligibility Validator | FR-005, FR-006, FR-007 | HIGH | Approved (unchanged) |
+| MODULE-001-06 | ISBN Normalization & Validation | FR-008 | MEDIUM | Approved (unchanged) |
+| MODULE-001-07 | Missing-ISBN Search Gate | FR-009 | MEDIUM | Approved (receives enriched item with directive contract) |
+| **MODULE-001-08** | **Deterministic Directive Parser** | **FR-023, FR-001 ext** | **MEDIUM** | **PENDING (CIR-002 / MIA-001)** |
+| **MODULE-001-09** | **LLM Fallback Gateway** | **FR-023** | **HIGH** | **PENDING (CIR-002 / MIA-001) — STAGE B** |
+| **MODULE-001-10** | **Directive Reconciliation Resolver** | **FR-023** | **HIGH** | **PENDING (CIR-002 / MIA-001) — STAGE C** |
+
+**EPIC-002 Modules (5 total — unchanged)**  
+See MDAP_MODULE_REGISTRY section above.
+
+**EPIC-003 Modules (5 total — was 4; +1 via CIR-001, PENDING)**
+
+| Module ID | Name | FRs | Risk | Status |
+|-----------|------|-----|------|--------|
+| MODULE-003-01 | Query Orchestrator | FR-015 | HIGH | Approved (extended for exclusivity) |
+| MODULE-003-02 | Match Classifier | FR-016 | MEDIUM | Approved (unchanged) |
+| MODULE-003-03 | Ranking Engine | FR-017 | HIGH | Approved (extended for preferred sellers) |
+| MODULE-003-04 | Apostila Routing Guard | FR-021 | MEDIUM | Approved (unchanged) |
+| **MODULE-003-05** | **School Exclusivity Resolver** | **FR-022** | **HIGH** | **PENDING (CIR-001)** |
+
+**EPIC-004 Modules (3 total — unchanged)**  
+See MDAP_MODULE_REGISTRY section above.
+
+**Total approved modules (baseline)**: 19  
+**Total pending modules (amendments CIR-001 + CIR-002, awaiting approval)**: +4 (MODULE-001-08, MODULE-001-09, MODULE-001-10, MODULE-003-05)  
+**Total modules (approved baseline + pending amendments)**: 23
+
+### STAGE_A_INDEPENDENCE
+
+**Stage A Advancement (MODULE-001-08 Deterministic Directive Parser):**
+- ✓ Can be implemented and integrated immediately after CIR-002/MIA-001 approval
+- ✓ No threshold dependencies block Stage A
+- ✓ Enables directive contract schema entry into persistence layer
+- ✓ Deterministic parser only (no LLM integration)
+
+**Stages B–D Advancement (MODULE-001-09/010 + shadow-mode promotion):**
+- ⏸ MODULE-001-09 blocked on THRESHOLD-LLM-01 and THRESHOLD-LLM-03
+- ⏸ MODULE-001-10 blocked on THRESHOLD-LLM-02
+- ⏸ Stage D blocked on THRESHOLD-LLM-04 and THRESHOLD-LLM-05
+- ⏸ OQ-FR023-02 must be resolved before MDAP detailed design for MODULE-001-09/001-10
+
+---
+
+### AMENDED_THRESHOLD_STATUS
+
+The following threshold items are ADDED by FR-023 and are entirely unresolved. They MUST be decided by stakeholders before Stages B–D of FR-023 implementation can begin.
+
+| Threshold ID | Description | Scope | Status |
+|-------------|-------------|-------|--------|
+| THRESHOLD-LLM-01 | Deterministic directive confidence below which LLM fallback is triggered | FR-023; MODULE-001-08, MODULE-001-09 | [THRESHOLD NEEDED] |
+| THRESHOLD-LLM-02 | LLM output confidence floor for auto-acceptance of LLM result | FR-023; MODULE-001-10 | [THRESHOLD NEEDED] |
+| THRESHOLD-LLM-03 | Maximum LLM call latency (ms) per item before timeout | FR-023; MODULE-001-09 | [THRESHOLD NEEDED] |
+| THRESHOLD-LLM-04 | LLM precision floor required to exit shadow mode and promote to live routing | FR-023; MODULE-001-09 | [THRESHOLD NEEDED] |
+| THRESHOLD-LLM-05 | Minimum shadow mode sample size (item count) before shadow-mode exit gate can open | FR-023; MODULE-001-09 | [THRESHOLD NEEDED] |
+
+---
+
+### AMENDED_OPEN_QUESTIONS
+
+| ID | Question | Must Resolve By |
+|---|---|---|
+| OQ-FR023-01 | Should LLM fallback be disableable per-school configuration? | Before Stage B |
+| OQ-FR023-02 | Is LLM rationale string stored in versioned audit trail (MODULE-004-02) or separate LLM call log? | ESCALATED: PRD sign-off before MDAP detailed design. Impact: MODULE-004-02 schema extension and audit-record structure. Coordination required with EPIC-004 team before Stage C. |
+| OQ-FR023-03 | Escalation path for requires_human_review=true items unreviewed after N days? | Before Stage C |
+
+---
+
+### AMENDED_CROSS_EPIC_DEPENDENCY
+
+The following new cross-epic dependency is introduced by CIR-002 (in addition to existing CIR-001 dependency):
+
+```
+MODULE-001-10 (Directive Reconciliation Resolver — EPIC-001)
+    ↓ directive contract (school_exclusive, required_sellers, preferred_sellers,
+                          directive_confidence, decision_source, requires_human_review)
+MODULE-003-05 (School Exclusivity Resolver — EPIC-003)
+```
+
+**Direction**: Forward-blocking (valid; no reverse dependency)  
+**Consumes**: Complete directive contract per FR-023 Section 4 schema
+
+---
+
+### AMENDED_HIGH_RISK_FILES (PENDING — TO BE CREATED DURING STAGED IMPLEMENTATION)
+
+The following new files are flagged as high-risk and will be added to `FILE_STRUCTURE_HIGH_RISK_FILES` once implemented:
+
+- `intake_canonicalization/deterministic_directive_parser.py` (MODULE-001-08, Stage A — MEDIUM risk: rule completeness)
+- `intake_canonicalization/llm_fallback_gateway.py` (MODULE-001-09, Stage B — HIGH risk: external LLM dependency)
+- `intake_canonicalization/directive_reconciliation_resolver.py` (MODULE-001-10, Stage C — HIGH risk: precedence policy correctness)
+- `search_ranking/school_exclusivity_resolver.py` (MODULE-003-05, CIR-001 PENDING — HIGH risk: conflict handling)
+
+Implementation note: Human review is required for all four files before code approval.
+
+---
+
+**Amendment Block Status**: PENDING — Do NOT treat amended ID ranges, module counts, or thresholds as canonical until PRD addendum is signed off and CIR-002 / MIA-001 are approved.  
+**Last Updated**: March 27, 2026

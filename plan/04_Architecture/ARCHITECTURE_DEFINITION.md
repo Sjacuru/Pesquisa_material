@@ -41,13 +41,13 @@ Gate Verdict: PASS - sufficient input exists to define Architecture.
 **Justification:**
 - Satisfies the approved decision to keep a single deployable application while preserving internal module boundaries.
 - Matches the local-first hosting target and minimizes operational burden.
-- Supports FR-001 through FR-021 without introducing distributed-system complexity not required by the PRD.
+- Supports the approved requirement set, including baseline FR-001 through FR-021 and the approved FR-024..FR-026 amendment path, without introducing distributed-system complexity not required by the PRD.
 - Fits NFR-001, NFR-002, NFR-003, and NFR-004 while keeping implementation simple enough for personal use and testing.
 
 ### High-Level Component Diagram Description
 The system is a single Python application composed of module-owning domain components and supporting infrastructure boundaries:
 - A server-rendered web interface handles upload, review, edit, search initiation, site onboarding, source-health visibility, and export/download interactions.
-- An Intake and Canonicalization component processes uploaded PDFs into validated, normalized material records.
+- An Intake and Canonicalization component processes uploaded source documents into validated, normalized material records.
 - A Source Governance component manages source onboarding, trust classification, site eligibility, and automatic suspension state.
 - A Search and Ranking component orchestrates source querying, match classification, trust-aware ranking, and Apostila routing.
 - A User Workflow and Export component handles user edits, versioned audit history, and final export generation.
@@ -71,7 +71,7 @@ The system is a single Python application composed of module-owning domain compo
 | Frontend UI | Django templates + HTMX | Supports server-rendered UI with small interactive components; fits FR-018, FR-020 and the approved frontend decision | Full SPA with React | Less suitable for highly stateful client interactions if the product later grows into a rich multi-user app |
 | Application Runtime | Python 3.12 + Django 5 | Aligns with the approved language/runtime and modular-monolith shape; strong fit for PDF processing, validation, and admin-like workflows | FastAPI + Jinja2 | Django is heavier than a minimal API framework |
 | Domain Processing | Python service modules inside the Django app | Preserves 19 MDAP modules as internal boundaries while keeping single deployable shape | Separate services | Strong discipline is needed to keep module boundaries clean inside one codebase |
-| Relational Data Store | PostgreSQL | Strong fit for structured relationships, audit/versioning, site governance, and search result persistence | SQLite for local-only MVP | PostgreSQL is more setup than SQLite, but safer for concurrency and future migration |
+| Relational Data Store | SQLite for MVP | Aligns with the approved FR-025 amendment for local-first persisted pipeline state | PostgreSQL for future scale/concurrency needs | SQLite is simpler for MVP but may need future migration if concurrency or scale materially increases |
 | File/Object Storage | Local filesystem through a storage abstraction | Fits local-first hosting and binary artifact handling for uploads/exports while preserving future S3-compatible migration path | Database BLOB storage | Local files are not ideal for multi-machine access until deployment evolves |
 | Background Execution | Database-backed job runner inside the same application boundary | Supports long-running source queries without adding broker/cache infrastructure at day one; aligns with single deployable app | Celery + Redis | Lower throughput ceiling than a dedicated broker-based queue |
 | Source Integration | HTTPX for APIs + Playwright/BeautifulSoup for targeted scraping adapters | Matches balanced integration decision and handles both API and non-API retailers | Selenium or Scrapy-only | Browser automation is heavier and can be brittle on dynamic sites |
@@ -83,7 +83,7 @@ The system is a single Python application composed of module-owning domain compo
 
 **Trade-off Summary:**
 - The stack favors simplicity, local operability, and traceability over elastic scale.
-- PostgreSQL is selected even for local-first use to avoid a later migration from SQLite into a more concurrent architecture.
+- SQLite is selected for the approved MVP amendment path to minimize operational burden; PostgreSQL remains a future-scale alternative if concurrency needs materially increase.
 - Background execution remains inside the application boundary to avoid introducing a separate broker until evidence demands it.
 
 ---
@@ -126,7 +126,7 @@ Rationale:
 
 ### 5.1 Intake and Canonicalization Component
 - **Modules:** MODULE-001-01 through MODULE-001-07
-- **Responsibility:** ingest PDFs, extract fields, classify confidence, normalize units, resolve duplicates, enforce category rules, validate ISBNs, and block search until mandatory identifiers are ready.
+- **Responsibility:** ingest source documents, extract fields, classify confidence, normalize units, resolve duplicates, enforce category rules, validate ISBNs, and block search until mandatory identifiers are ready.
 - **Interfaces exposed:** upload intake commands, canonical material record retrieval, validation results, review queue inputs, and search-readiness status.
 - **Dependencies:** file/object storage for source files; relational data for canonical records; User Workflow component for downstream editable state.
 - **Failure mode and recovery:**
@@ -201,7 +201,7 @@ Rationale:
 - User Workflow and Export owns VersionEvent and ExportArtifact.
 
 ### Data Flow
-1. User uploads PDF into file/object storage and UploadBatch metadata into relational storage.
+1. User uploads source document into file/object storage and UploadBatch metadata into relational storage.
 2. Intake and Canonicalization extracts and normalizes item data into CanonicalItems.
 3. Search and Ranking reads CanonicalItems and Source Governance eligibility state, then runs search jobs.
 4. RankedOffers are stored and exposed to user-edit workflows.
@@ -251,7 +251,7 @@ Rationale:
 - Never store source credentials or tokens in the relational database unless encrypted and justified.
 
 ### Known Attack Surfaces + Mitigations
-- **Malicious PDF upload:** validate file type, size, page count, and processing sandbox boundaries.
+- **Malicious document upload:** validate file type, size, page count, and processing sandbox boundaries.
 - **Scraping adapter abuse or site-blocking risk:** rate limit outbound traffic, identify adapters per source, and respect source-specific throttle behavior.
 - **Credential leakage:** keep adapter credentials outside source control and minimize credential scope.
 - **Local data exposure on shared machine:** recommend OS-level account protection and encrypted disk if sensitive data is retained.
@@ -338,6 +338,32 @@ Note: unchecked items above require human review before any non-local deployment
 - Restore the latest compatible relational backup.
 - Keep uploads and generated exports in versioned or timestamped storage paths where feasible.
 - On failed adapter rollout, disable the affected source adapter without rolling back the entire application if domain state remains compatible.
+
+---
+
+## AMENDMENT: FOUNDATION PIPELINE EXPANSION (FR-024..FR-026)
+
+**Status:** PRD APPROVED; downstream EPIC/MDAP propagation pending  
+**Date:** March 26, 2026
+
+### Boundary Check Result
+- No scope-ceiling violation detected: the amendment stays inside mixed document formats and price-comparison workflow.
+- One architecture inconsistency existed and is corrected here: MVP relational storage is SQLite, not PostgreSQL, for the approved amendment path.
+
+### Architecture Impact Summary
+- Input scope expands from PDF-only wording to mixed source documents, specifically PDF, DOCX, and XLSX.
+- Intake and Canonicalization gains a pending Stage A routing layer for file-type detection and PDF text-vs-image routing.
+- FR-025 and FR-026 affect persistence and integration strategy but do not yet add canonical modules here until downstream amendment artifacts are approved.
+
+### Pending Stage A Module Additions (Non-Canonical Until EPIC/MDAP Approval)
+- MODULE-001-11: File Type Detection Router
+- MODULE-001-12: PDF Coverage and Layout Router
+- MODULE-001-13: OCR Extraction Processor
+
+### Architecture Constraints Preserved
+- Modular monolith remains unchanged.
+- No new personas or role systems are introduced.
+- No distributed services are introduced by the amendment itself.
 
 ---
 

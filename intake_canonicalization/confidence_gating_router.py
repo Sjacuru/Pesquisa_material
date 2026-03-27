@@ -38,6 +38,11 @@ def split_by_confidence(
 	rejected_fields: list[dict] = []
 
 	for item in extracted_items_with_confidence:
+		if bool(item.get("requires_human_review", False)):
+			enriched_item = {**item, "gate_route": "review", "gate_reason": "directive_resolution_required"}
+			review_queue_fields.append(enriched_item)
+			continue
+
 		confidence = float(item.get("confidence", 0.0))
 		route = route_confidence(confidence)
 		enriched_item = {**item, "gate_route": route}

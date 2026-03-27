@@ -18,6 +18,7 @@ from persistence.repositories import (
     SourceSiteRepository,
     UploadBatchRepository,
     VersionEventRepository,
+    persist_stage_a_result,
 )
 
 
@@ -129,7 +130,9 @@ class SourceSiteRepositoryTests(TestCase):
         self.assertNotIn("ineligible.com", ids)
 
     # failure path
-    def test_list_eligible_empty_when_no_sites(self):
+    def test_list_eligible_empty_when_no_eligible_sites(self):
+        # Mark all sites as ineligible/blocked — safer than delete under TestCase savepoints
+        SourceSite.objects.update(is_search_eligible=False)
         self.assertEqual(list(self.repo.list_eligible()), [])
 
 
@@ -218,3 +221,69 @@ class VersionEventRepositoryTests(TestCase):
         self.repo.append(**kwargs)
         with self.assertRaises(IntegrityError):
             self.repo.append(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Stage A Persistence Flow
+# ---------------------------------------------------------------------------
+
+class StageAResultPersistenceTests(TestCase):
+
+    def test_persist_stage_a_native_result_creates_batch_and_items(self):
+        stage_a_result = {
+            "route_mode": "native_text",
+            "detected_type": "pdf",
+            "extracted_items": [
+                {
+                    "line_index": 0,
+                    "requires_human_review": False,
+                    "fields": {
+                        "name": {"value": "Livro de Matemática"},
+                        "category": {"value": "book"},
+                        "quantity": {"value": "2 un"},
+                        "isbn": {"value": "978-0-306-40615-7"},
+                    },
+                }
+            ],
+        }
+
+        result = persist_stage_a_result(
+            stage_a_result=stage_a_result,
+            source_filename="lista_2026.pdf",
+        )
+
+        batch = result["upload_batch"]
+        items = result["canonical_items"]
+
+        self.assertEqual(batch.source_filename, "lista_2026.pdf")
+        self.assertEqual(batch.status, UploadBatch.Status.EXTRACTED)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].name, "Livro de Matemática")
+        self.assertTrue(items[0].search_ready)
+        self.assertEqual(items[0].isbn_normalized, "9780306406157")
+
+    def test_persist_stage_a_review_required_sets_batch_status(self):
+        stage_a_result = {
+            "route_mode": "review_required",
+            "detected_type": "unknown",
+            "extracted_items": [
+                {
+                    "line_index": -1,
+                    "line_text": "",
+                    "requires_human_review": True,
+                    "gate_reason": "file_type_uncertain",
+                }
+            ],
+        }
+
+        result = persist_stage_a_result(
+            stage_a_result=stage_a_result,
+            source_filename="arquivo.bin",
+        )
+
+        batch = result["upload_batch"]
+        items = result["canonical_items"]
+
+        self.assertEqual(batch.status, UploadBatch.Status.REVIEW_REQUIRED)
+        self.assertEqual(len(items), 1)
+        self.assertFalse(items[0].search_ready)

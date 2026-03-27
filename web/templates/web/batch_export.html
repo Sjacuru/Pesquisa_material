@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Exportar lista — Batch {{ batch.id }}</title>
+  <style>
+    body { font-family: sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+    nav { background: #f0f0f0; padding: 8px 12px; margin-bottom: 24px; border-radius: 4px; }
+    nav a { margin-right: 16px; text-decoration: none; color: #0066cc; }
+    nav a:hover { text-decoration: underline; }
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+    th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { background: #f7f7f7; }
+    .muted { color: #666; font-size: 0.9em; }
+    .badge-found { color: #155724; background: #d4edda; padding: 2px 8px; border-radius: 10px; font-size: 0.85em; }
+    .badge-missing { color: #856404; background: #fff3cd; padding: 2px 8px; border-radius: 10px; font-size: 0.85em; }
+    .buy-btn { display: inline-block; background: #28a745; color: white; padding: 3px 10px; border-radius: 4px; text-decoration: none; font-size: 0.85em; }
+    .buy-btn:hover { background: #218838; }
+    .edit-btn { display: inline-block; background: #6c757d; color: white; padding: 3px 10px; border-radius: 4px; text-decoration: none; font-size: 0.85em; }
+    .edit-btn:hover { background: #5a6268; }
+    .download-btn { display: inline-block; background: #0066cc; color: white; padding: 8px 18px; border-radius: 4px; text-decoration: none; font-size: 1em; }
+    .download-btn:hover { background: #0052a3; }
+    .summary-box { background: #f8f9fa; border: 1px solid #dee2e6; padding: 12px 16px; border-radius: 4px; margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <strong>Workflow:</strong>
+    <a href="{% url 'upload-workflow' %}">&#8679; Upload &amp; Stage A</a>
+  </nav>
+
+  <h1>Exportar lista de preços</h1>
+
+  <div class="summary-box">
+    <strong>Batch:</strong> {{ batch.id }}
+    &nbsp;|&nbsp;
+    <strong>Arquivo:</strong> {{ batch.source_filename }}
+    &nbsp;|&nbsp;
+    <strong>Status:</strong> {{ batch.status }}
+    &nbsp;|&nbsp;
+    <strong>Itens:</strong> {{ rows|length }}
+    &nbsp;|&nbsp;
+    <strong>Com oferta:</strong> {% with found=rows|length %}{% for r in rows %}{% if r.offer %}{% endif %}{% endfor %}{% endwith %}
+    {% for r in rows %}{% if r.offer %}{% with dummy=1 %}{% endwith %}{% endif %}{% endfor %}
+    {{ rows|length }} total
+  </div>
+
+  <div style="margin-bottom:20px;">
+    <a class="download-btn" href="{% url 'batch-export-download' batch.id %}">&#11123; Baixar CSV</a>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Item</th>
+        <th>Categoria</th>
+        <th>ISBN</th>
+        <th>Qtd</th>
+        <th>Melhor oferta</th>
+        <th>Site</th>
+        <th>Vendedor</th>
+        <th>Total</th>
+        <th>Ações</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.item.name }}</td>
+        <td class="muted">{{ row.item.category }}</td>
+        <td class="muted">{{ row.item.isbn_normalized|default:"—" }}</td>
+        <td class="muted">{{ row.item.quantity }} {{ row.item.unit }}</td>
+        {% if row.offer %}
+          <td>{{ row.offer.product_title|truncatechars:60 }}</td>
+          <td class="muted">{{ row.offer.source_site.label|default:"—" }}</td>
+          <td class="muted">{{ row.offer.seller_name|default:"—" }}</td>
+          <td><strong>R$&nbsp;{{ row.offer.total_price }}</strong></td>
+          <td>
+            <a class="buy-btn" href="{{ row.offer.product_url }}" target="_blank" rel="noopener noreferrer">Comprar</a>
+            &nbsp;
+            <a class="edit-btn" href="{% url 'item-edit' row.item.pk %}">Editar</a>
+          </td>
+        {% else %}
+          <td colspan="3"><span class="badge-missing">Sem oferta</span></td>
+          <td>—</td>
+          <td>
+            <a class="edit-btn" href="{% url 'item-edit' row.item.pk %}">Editar / Buscar</a>
+          </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+</body>
+</html>

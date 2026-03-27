@@ -27,7 +27,7 @@ It is intentionally more explicit than the Architecture Definition document, but
 - Trust/Reputation Sources: provide trust-validation signals during onboarding and revalidation
 
 ### Context Narrative
-The product is a local-first web application that ingests school material lists, converts them into a canonical item set, queries eligible retailers, ranks results by delivered price and trust, allows corrective edits, and exports the final curated output as PDF, CSV, or JSON.
+The product is a local-first web application that ingests school material lists from mixed source documents, converts them into a canonical item set, queries eligible retailers, ranks results by delivered price and trust, allows corrective edits, and exports the final curated output as PDF, CSV, or JSON.
 
 ---
 
@@ -53,7 +53,7 @@ The product is a local-first web application that ingests school material lists,
    - audit/version state
 
 4. **File/Object Storage Container**
-   - uploaded PDFs
+   - uploaded source documents
    - intermediate artifacts if needed
    - generated exports (PDF/CSV/JSON)
 
@@ -87,6 +87,11 @@ The product is a local-first web application that ingests school material lists,
 - Canonical item set
 - Review tasks
 - Search-ready material records
+
+### Amendment Note for Component A
+- Approved PRD amendment FR-024 introduces mixed-document routing and OCR-first PDF decisioning.
+- Pending downstream approval adds Stage A modules: MODULE-001-11, MODULE-001-12, MODULE-001-13.
+- DOCX and XLSX routing are in scope for the router boundary; new DOCX/XLSX parser redesign is not.
 
 ### B. Source Governance Component
 **Owns:** MODULE-002-01 through MODULE-002-05
@@ -160,6 +165,7 @@ The product is a local-first web application that ingests school material lists,
 
 ### Intake and Canonicalization
 - Bad upload or low extraction confidence does not kill the batch; it creates review work.
+- Mixed-document routing uncertainty must default to review_required rather than silent data loss.
 
 ### Source Governance
 - Trust-source outages do not auto-approve sites; they leave sites pending or unchanged.
@@ -200,3 +206,118 @@ With this artifact, the next phase has a clear rule:
 - component boundary first
 - file layout second
 - code only after both are stable
+
+---
+
+## AMENDMENT: FOUNDATION PIPELINE EXPANSION (FR-024..FR-026)
+
+**Status**: PRD APPROVED; downstream EPIC/MDAP propagation pending  
+**Date**: March 26, 2026
+
+### Boundary Check Result
+- No scope boundary violation detected.
+- The amendment extends the existing intake boundary rather than creating a new component.
+
+### Pending Component Change (Non-Canonical Until EPIC/MDAP Approval)
+
+```text
+MODULE-001-11: File Type Detection Router
+   -> routes PDF, DOCX, XLSX into compatible extraction paths
+
+MODULE-001-12: PDF Coverage and Layout Router
+   -> decides native_text vs ocr for PDFs using THRESHOLD-OCR-01 = 0.70
+
+MODULE-001-13: OCR Extraction Processor
+   -> executes OCR path and returns extraction_source + confidence metadata
+```
+
+### Architectural Effect
+- Component A expands from PDF-only wording to mixed-document ingestion.
+- No new top-level component is required.
+- Chunk 5 and Chunk 6 remain outside this component-view amendment until their downstream approvals exist.
+
+---
+
+## AMENDMENT: CIR-002 / MIA-001 — AI Directive Extraction Fallback
+
+**Status**: PENDING HUMAN GATE APPROVAL  
+**Date**: March 27, 2026
+
+### Amended Component A: Intake and Canonicalization Component
+
+**Pending addition** (CIR-002, all PENDING sign-off):
+
+```
+MODULE-001-08: Deterministic Directive Parser
+  - Feeds into: MODULE-001-10
+  - Risk: MEDIUM
+  - Sub-boundary: Directive notation parsing and confidence scoring
+
+MODULE-001-09: LLM Fallback Gateway
+  - Feeds into: MODULE-001-10
+  - Conditional: invoked only when MODULE-001-08 directive_confidence < THRESHOLD-LLM-01
+  - External dependency: configured LLM provider (architecture decision deferred)
+  - Risk: HIGH
+  - Sub-boundary: External LLM call lifecycle (prompt, invoke, retry, timeout, parse, shadow mode)
+
+MODULE-001-10: Directive Reconciliation Resolver
+  - Receives from: MODULE-001-08 (always) + MODULE-001-09 (when invoked)
+  - Feeds into: MODULE-001-07 (with complete directive contract)
+  - Risk: HIGH
+  - Sub-boundary: Reconciliation precedence policy; directive contract finalization; audit trail write
+```
+
+**Updated Sub-boundaries for Component A**:
+- Upload intake
+- Extraction and confidence routing
+- **Directive extraction: deterministic parser → [conditional LLM fallback] → reconciliation resolver** ← NEW
+- Normalization and duplicate review
+- Category/ISBN enforcement
+- Search-readiness gate
+
+**Updated Primary outputs for Component A**:
+- Canonical item set
+- Review tasks
+- Search-ready material records
+- **Directive contract per item: school_exclusive, required_sellers, preferred_sellers, directive_confidence, decision_source, requires_human_review** ← NEW
+
+### Amended Component C: Search and Ranking Component
+
+**Pending addition** (CIR-001, PENDING sign-off):
+
+```
+MODULE-003-05: School Exclusivity Resolver
+  - Receives from: MODULE-001-10 (directive contract) + MODULE-002-04 (eligible sources)
+  - Feeds into: MODULE-003-01 (Query Orchestrator)
+  - New position: between directive contract resolution and search fan-out
+  - Risk: HIGH
+```
+
+**Updated Sub-boundaries for Component C**:
+- **Exclusivity resolution and conflict logging** ← NEW (MODULE-003-05)
+- Search job orchestration
+- Adapter fan-out execution
+- Match classification
+- Ranking and Apostila routing
+
+### Updated Inter-Component Dependency
+
+New dependency added:
+
+```
+Intake and Canonicalization Component
+    ↓ directive contract (MODULE-001-10 output)
+Search and Ranking Component → MODULE-003-05 (exclusivity resolver)
+    ↓ resolved item with exclusivity state
+MODULE-003-01 (query orchestrator)
+```
+
+### New External Integration Pattern (PENDING — requires Architecture decision)
+
+MODULE-001-09 (LLM Fallback Gateway) introduces an **outbound LLM call** as a new external integration type. This requires:
+
+- A-04 amendment: LLM gateway adapter added as a third integration adapter type (alongside retailer API and targeted scraping adapters)
+- Provider selection and API credential management deferred to Architecture implementation decision
+- A-05 amendment: shadow mode structured logs added to observability baseline
+
+**All changes above are PENDING. Treat as non-canonical until CIR-002 / MIA-001 are approved.**

@@ -2,126 +2,113 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Upload &amp; Batch Exclusivity Review</title>
+  <title>Upload &amp; Stage A Processing</title>
   <style>
     body { font-family: sans-serif; max-width: 960px; margin: 24px auto; padding: 0 16px; }
     nav { background: #f0f0f0; padding: 8px 12px; margin-bottom: 24px; border-radius: 4px; }
     nav a { margin-right: 16px; text-decoration: none; color: #0066cc; }
     nav a:hover { text-decoration: underline; }
-    textarea { font-family: monospace; font-size: 13px; width: 100%; box-sizing: border-box; }
     table { border-collapse: collapse; width: 100%; margin-top: 12px; }
     th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; }
     th { background: #f7f7f7; }
-    .badge-eligible { background: #d4edda; color: #155724; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
-    .badge-review { background: #fff3cd; color: #856404; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
-    .section-title { margin-top: 28px; }
-    .review-btn { background: #ffc107; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; text-decoration: none; color: #212529; }
-    .review-btn:hover { background: #e0a800; }
     .error-box { background: #f8d7da; color: #721c24; padding: 10px 14px; border-radius: 4px; margin-top: 12px; }
+    .success-box { background: #d4edda; color: #155724; padding: 10px 14px; border-radius: 4px; margin-top: 12px; }
+    .muted { color: #666; }
   </style>
 </head>
 <body>
 
   <nav>
     <strong>Workflow:</strong>
-    <a href="/workflow/upload/">&#8679; Upload &amp; Batch Review</a>
+    <a href="/workflow/upload/">&#8679; Upload &amp; Stage A</a>
     <a href="/workflow/exclusivity/demo/">Demo Scenarios</a>
     <a href="/workflow/exclusivity/review/">Manual Review</a>
   </nav>
 
-  <h1>Upload &amp; Batch Exclusivity Review</h1>
-  <p>Paste a JSON array of items below. Each item is run through the school exclusivity resolver (MODULE-003-05).
-     Items flagged as <strong>review_required</strong> can be opened directly in the review screen.</p>
+  <h1>Upload &amp; Stage A Processing</h1>
+  <p>Upload a source file (PDF, DOCX, XLSX, CSV, TXT, image, or EPUB). The system runs Stage A ingestion and stores the batch/items in the database.</p>
 
-  <form method="post">
+  <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
-
-    <label><strong>Active sources</strong> (comma-separated site IDs)</label><br />
-    <input type="text" name="active_sources" value="{{ active_sources }}" style="width:100%;box-sizing:border-box;" /><br /><br />
-
-    <label><strong>Items JSON</strong> (array of item objects)</label><br />
-    <textarea name="items_json" rows="18">{{ items_json }}</textarea><br /><br />
-
-    <button type="submit">Run Exclusivity Resolution</button>
+    <label for="source_file"><strong>Source file</strong></label><br />
+    <input id="source_file" name="source_file" type="file" required /><br /><br />
+    <button type="submit">Process File</button>
   </form>
 
-  {% if parse_error %}
+  {% if error_message %}
     <div class="error-box">
-      <strong>JSON parse error:</strong> {{ parse_error }}
+      <strong>Processing error:</strong> {{ error_message }}
     </div>
   {% endif %}
 
   {% if has_results %}
+    <div class="success-box">
+      <strong>Route mode:</strong> {{ stage_a_result.route_mode }}
+      &nbsp;|&nbsp;
+      <strong>Detected type:</strong> {{ stage_a_result.detected_type }}
+      &nbsp;|&nbsp;
+      <strong>Extracted items:</strong> {{ stage_a_result.extracted_items|length }}
+    </div>
 
-    <h2 class="section-title">
-      Results &mdash;
-      {{ eligible_items|length }} eligible,
-      {{ review_required_items|length }} review required
-    </h2>
-
-    {% if eligible_items %}
-      <h3>&#10003; Eligible ({{ eligible_items|length }})</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>Item</th>
-            <th>Status</th>
-            <th>Reason</th>
-            <th>Mandatory sources</th>
-            <th>Preferred sources</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for item in eligible_items %}
-            <tr>
-              <td>{{ item.name }}<br /><small style="color:#666;">{{ item.item_id }}</small></td>
-              <td><span class="badge-eligible">eligible</span></td>
-              <td>{{ item.resolution_reason }}</td>
-              <td>{{ item.mandatory_sources|join:", " }}</td>
-              <td>{{ item.preferred_sources|join:", " }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    {% if stage_a_result.persistence %}
+      <h2>Persistence</h2>
+      <p>
+        <strong>Batch ID:</strong> {{ stage_a_result.persistence.upload_batch_id }}
+        &nbsp;|&nbsp;
+        <strong>Status:</strong> {{ stage_a_result.persistence.status }}
+        &nbsp;|&nbsp;
+        <strong>Items saved:</strong> {{ stage_a_result.persistence.canonical_item_count }}
+        &nbsp;|&nbsp;
+        <a href="{% url 'batch-export' stage_a_result.persistence.upload_batch_id %}">&#11123; Exportar lista</a>
+      </p>
     {% endif %}
 
-    {% if review_required_items %}
-      <h3>&#9888; Review Required ({{ review_required_items|length }})</h3>
+    <h2>Extracted Preview</h2>
+    {% if preview_items %}
       <table>
         <thead>
           <tr>
-            <th>Item</th>
-            <th>Status</th>
-            <th>Reason</th>
-            <th>Conflicts</th>
-            <th>Action</th>
+            <th>Line</th>
+            <th>Name</th>
+            <th>Category</th>
+            <th>ISBN</th>
+            <th>Review</th>
+            <th>Offers</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
-          {% for item in review_required_items %}
+          {% for item in preview_items %}
             <tr>
-              <td>{{ item.name }}<br /><small style="color:#666;">{{ item.item_id }}</small></td>
-              <td><span class="badge-review">review_required</span></td>
-              <td>{{ item.resolution_reason }}</td>
+              <td>{{ item.line_index }}</td>
+              <td>{{ item.name }}</td>
+              <td>{{ item.category|default:"-" }}</td>
+              <td>{{ item.isbn|default:"-" }}</td>
+              <td>{% if item.requires_review %}yes{% else %}no{% endif %}</td>
               <td>
-                {% for c in item.conflicts %}
-                  <div>{{ c.conflict_type }}{% if c.blocked_sellers %}: {{ c.blocked_sellers|join:", " }}{% endif %}</div>
-                {% empty %}
-                  &mdash;
-                {% endfor %}
+                {% if item.offers_found is not None %}
+                  {{ item.offers_found }}
+                  {% if item.search_error %}<span style="color:#856404;" title="{{ item.search_error }}">&#9888;</span>{% endif %}
+                {% elif item.requires_review %}
+                  <span style="color:#666;">—</span>
+                {% else %}
+                  <span style="color:#666;">—</span>
+                {% endif %}
               </td>
               <td>
-                <a class="review-btn"
-                   href="/workflow/exclusivity/review/?{{ item.review_params }}&back=/workflow/upload/">
-                  Review
-                </a>
+                {% if item.item_id %}
+                  <a href="{% url 'item-search-results' item.item_id %}">Ver preços</a>
+                  &nbsp;·&nbsp;
+                  <a href="{% url 'item-edit' item.item_id %}">Editar</a>
+                {% endif %}
               </td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
+    {% else %}
+      <p class="muted">No extracted line items were produced for this file.</p>
     {% endif %}
-
   {% endif %}
 
 </body>

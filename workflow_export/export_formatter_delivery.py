@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from hashlib import sha256
 import json
 
+from workflow_export.csv_formatter import format_as_csv
+
 
 SUPPORTED_FORMATS = {"pdf", "csv", "json"}
 
@@ -122,18 +124,30 @@ def _build_export_payload(curated_set: dict, version_context: dict, export_forma
 	}
 
 
-def _default_render_adapter(export_format: str, payload: dict) -> dict:
+def _default_render_adapter(export_format: str, payload: dict, version_context: dict | None = None) -> dict:
+	if export_format == "csv":
+		return {
+			"contentType": "text/csv; charset=utf-8",
+			"artifact": format_as_csv(payload.get("records") or [], version_context or {}),
+			"payload": deepcopy(payload),
+		}
+	if export_format == "json":
+		return {
+			"contentType": "application/json",
+			"artifact": json.dumps(payload, ensure_ascii=False),
+			"payload": deepcopy(payload),
+		}
 	return {
 		"contentType": f"application/{export_format}",
 		"payload": deepcopy(payload),
 	}
 
 
-def _render_with_adapter(export_format: str, payload: dict, format_adapters: dict | None) -> dict:
+def _render_with_adapter(export_format: str, payload: dict, format_adapters: dict | None, version_context: dict | None = None) -> dict:
 	adapters = format_adapters or {}
 	adapter = adapters.get(export_format)
 	if adapter is None:
-		return _default_render_adapter(export_format, payload)
+		return _default_render_adapter(export_format, payload, version_context=version_context)
 
 	return adapter(deepcopy(payload))
 
@@ -182,7 +196,7 @@ def export_formatter_delivery(
 	generated_at = _now_iso()
 
 	try:
-		content_ref = _render_with_adapter(export_format, payload, format_adapters)
+		content_ref = _render_with_adapter(export_format, payload, format_adapters, version_context=version_context)
 	except Exception:
 		return {
 			"exportArtifact": None,
@@ -208,6 +222,7 @@ def export_formatter_delivery(
 		"reasonCode": "delivered",
 		"artifactId": artifact_id,
 		"deliveredAt": generated_at,
+		"artifact": content_ref.get("artifact") if isinstance(content_ref, dict) else None,
 	}
 
 	export_event = {

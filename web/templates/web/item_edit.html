@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Editar item — {{ item.name }}</title>
+  <style>
+    body { font-family: sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; }
+    nav { background: #f0f0f0; padding: 8px 12px; margin-bottom: 24px; border-radius: 4px; }
+    nav a { margin-right: 16px; text-decoration: none; color: #0066cc; }
+    nav a:hover { text-decoration: underline; }
+    .field { margin-bottom: 14px; }
+    label { display: block; font-weight: bold; margin-bottom: 4px; }
+    input[type=text], input[type=number], select {
+      width: 100%; padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px;
+      font-size: 1em; box-sizing: border-box;
+    }
+    .field-error { color: #721c24; font-size: 0.88em; margin-top: 3px; }
+    .btn-primary { background: #0066cc; color: white; border: none; padding: 8px 20px; border-radius: 4px; cursor: pointer; font-size: 1em; }
+    .btn-primary:hover { background: #0052a3; }
+    .btn-secondary { background: #fff; color: #0066cc; border: 1px solid #0066cc; padding: 7px 16px; border-radius: 4px; text-decoration: none; font-size: 1em; }
+    .btn-secondary:hover { background: #e6f0ff; }
+    .hint { color: #666; font-size: 0.85em; margin-top: 3px; }
+    .info-box { background: #cce5ff; color: #004085; padding: 10px 14px; border-radius: 4px; margin-bottom: 16px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 0.88em; }
+    th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+    th { background: #f7f7f7; }
+    .muted { color: #888; }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <strong>Workflow:</strong>
+    <a href="{% url 'upload-workflow' %}">&#8679; Upload &amp; Stage A</a>
+    <a href="{% url 'item-search-results' item.pk %}">&#8592; Resultados de busca</a>
+  </nav>
+
+  <h1>Editar item</h1>
+
+  <div class="info-box">
+    Corrija os dados abaixo e clique em <strong>Salvar e buscar</strong>. O sistema relançará a busca automaticamente após salvar.
+    Todas as alterações ficam registradas no histórico de versões.
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+
+    <div class="field">
+      <label for="name">Nome do item *</label>
+      <input id="name" name="name" type="text" value="{{ item.name }}" required />
+      {% if errors.name %}<div class="field-error">{{ errors.name }}</div>{% endif %}
+    </div>
+
+    <div class="field">
+      <label for="category">Categoria</label>
+      <select id="category" name="category">
+        {% for cat in categories %}
+          <option value="{{ cat }}" {% if item.category == cat %}selected{% endif %}>{{ cat }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="isbn_normalized">ISBN (opcional)</label>
+      <input id="isbn_normalized" name="isbn_normalized" type="text"
+             value="{{ item.isbn_normalized }}" placeholder="ex: 9788535902778" maxlength="14" />
+      <div class="hint">Somente dígitos, 10 ou 13 caracteres. Será limpo se inválido.</div>
+    </div>
+
+    <div class="field" style="display:flex; gap:16px;">
+      <div style="flex:1;">
+        <label for="quantity">Quantidade</label>
+        <input id="quantity" name="quantity" type="text" value="{{ item.quantity }}" />
+      </div>
+      <div style="flex:1;">
+        <label for="unit">Unidade</label>
+        <input id="unit" name="unit" type="text" value="{{ item.unit }}" placeholder="un" />
+      </div>
+    </div>
+
+    <div style="display:flex; gap:12px; margin-top:20px; align-items:center;">
+      <button class="btn-primary" type="submit">&#10003; Salvar e buscar preços</button>
+      <a class="btn-secondary" href="{% url 'item-search-results' item.pk %}">Cancelar</a>
+    </div>
+  </form>
+
+  {% if history %}
+  <h2 style="margin-top: 36px;">Histórico de alterações</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Campo</th>
+        <th>Valor anterior</th>
+        <th>Novo valor</th>
+        <th>Data/hora</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for event in history %}
+      <tr>
+        <td class="muted">{{ event.version_number }}</td>
+        <td>{{ event.field_name }}</td>
+        <td class="muted">{{ event.old_value|default:"—" }}</td>
+        <td>{{ event.new_value }}</td>
+        <td class="muted">{{ event.timestamp|date:"d/m/Y H:i" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+</body>
+</html>

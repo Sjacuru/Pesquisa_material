@@ -77,3 +77,18 @@ def test_split_by_confidence_uses_default_zero_when_missing_confidence() -> None
 	assert len(rejected_fields) == 1
 	assert rejected_fields[0]["item_id"] == "m1"
 	assert rejected_fields[0]["gate_route"] == "reject"
+
+
+def test_split_by_confidence_forces_review_when_directive_requires_human_review() -> None:
+	items = [
+		{"item_id": "a1", "confidence": 0.99, "requires_human_review": True},
+	]
+
+	accepted_fields, review_queue_fields, rejected_fields = split_by_confidence(items)
+
+	assert accepted_fields == []
+	assert rejected_fields == []
+	assert len(review_queue_fields) == 1
+	assert review_queue_fields[0]["item_id"] == "a1"
+	assert review_queue_fields[0]["gate_route"] == "review"
+	assert review_queue_fields[0]["gate_reason"] == "directive_resolution_required"

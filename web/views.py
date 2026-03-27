@@ -9,14 +9,22 @@
 #   - Only approved high-level workflows are represented by this delivery boundary.
 # HUMAN_REVIEW: Yes — user-facing workflow entry layer.
 
-import json
-from urllib.parse import urlencode
+import re
+from decimal import Decimal, InvalidOperation
 
-from django.http import HttpRequest, JsonResponse
-from django.shortcuts import render
+from django.conf import settings
+from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 
+from intake_canonicalization.stage_a_ingestion_pipeline import process_stage_a_ingestion
+from job_runner import get_default_job_runner
+from persistence.models import CanonicalItem, Offer, UploadBatch, VersionEvent, WorkflowState
+from persistence.repositories import OfferRepository, VersionEventRepository, WorkflowStateRepository
 from search_ranking.query_orchestrator import orchestrate_query
 from search_ranking.school_exclusivity_resolver import resolve_school_exclusivity
+from search_ranking.search_executor import execute_search_for_item
+from workflow_export.export_formatter_delivery import export_formatter_delivery
 
 
 def _split_csv(value: str) -> list[str]:
@@ -48,101 +56,306 @@ def health(request: HttpRequest) -> JsonResponse:
 	return JsonResponse({"status": "ok", "phase": "scaffold"})
 
 
-_SAMPLE_UPLOAD_JSON = json.dumps(
-	[
-		{
-			"item_id": "item-001",
-			"name": "Caderno 10 matérias",
-			"school_exclusive": False,
-			"required_sellers": [],
-			"preferred_sellers": ["seller-a"],
-			"exclusive_source": "default",
-		},
-		{
-			"item_id": "item-002",
-			"name": "Uniforme escolar",
-			"school_exclusive": True,
-			"required_sellers": ["seller-a"],
-			"preferred_sellers": [],
-			"exclusive_source": "document_notation",
-		},
-		{
-			"item_id": "item-003",
-			"name": "Kit de artes exclusivo",
-			"school_exclusive": True,
-			"required_sellers": ["seller-xyz"],
-			"preferred_sellers": [],
-			"exclusive_source": "document_notation",
-		},
-	],
-	indent=2,
-	ensure_ascii=False,
-)
-
-_DEFAULT_ACTIVE_SOURCES_CSV = "seller-a,seller-b,seller-c"
-
-
-def _build_review_params(item: dict, active_sources_raw: str) -> str:
-	params = {
-		"item_name": str(item.get("name") or ""),
-		"required_sellers": ",".join(item.get("required_sellers") or []),
-		"preferred_sellers": ",".join(item.get("preferred_sellers") or []),
-		"active_sources": active_sources_raw,
-		"school_exclusive": "on" if item.get("school_exclusive") else "",
-		"exclusive_source": str(item.get("exclusive_source") or "default"),
+def _category_matrix() -> dict[str, dict[str, str]]:
+	return {
+		"book": {"id": "book"},
+		"dictionary": {"id": "dictionary"},
+		"apostila": {"id": "apostila"},
+		"notebook": {"id": "notebook"},
+		"general supplies": {"id": "general supplies"},
 	}
-	return urlencode(params)
 
 
 def upload_workflow(request: HttpRequest):
-	"""Batch upload simulation: resolves exclusivity on a JSON list of items."""
-	parse_error = None
-	eligible_items: list[dict] = []
-	review_required_items: list[dict] = []
-	active_sources_raw = _DEFAULT_ACTIVE_SOURCES_CSV
-	items_json_display = _SAMPLE_UPLOAD_JSON
+	"""Real upload workflow: process source file through Stage A and persist results."""
+	error_message = None
+	stage_a_result = None
+	preview_items: list[dict] = []
+	queued_jobs: list[dict] = []
 
 	if request.method == "POST":
-		active_sources_raw = str(request.POST.get("active_sources") or _DEFAULT_ACTIVE_SOURCES_CSV)
-		items_json_display = str(request.POST.get("items_json") or "")
-		active_sources = [
-			{"site_id": sid, "is_search_eligible": True}
-			for sid in _split_csv(active_sources_raw)
-		]
-		try:
-			raw = json.loads(items_json_display)
-			items = raw if isinstance(raw, list) else [raw]
-			for item in items:
-				resolution = resolve_school_exclusivity(item=item, active_sources=active_sources)
-				entry = {
-					"item_id": item.get("item_id", ""),
-					"name": item.get("name", ""),
-					"resolution_status": resolution["resolution_status"],
-					"resolution_reason": resolution["resolution_reason"],
-					"mandatory_sources": resolution["mandatory_sources"],
-					"preferred_sources": resolution["preferred_sources"],
-					"conflicts": resolution["conflicts"],
-					"review_params": _build_review_params(item, active_sources_raw),
+		uploaded_file = request.FILES.get("source_file")
+		if uploaded_file is None:
+			error_message = "Please choose a file to upload."
+		else:
+			try:
+				file_bytes = uploaded_file.read()
+				uploaded_document = {
+					"filename": uploaded_file.name,
+					"content_type": uploaded_file.content_type,
+					"file_bytes": file_bytes,
 				}
-				if resolution["resolution_status"] == "review_required":
-					review_required_items.append(entry)
+
+				stage_a_result = process_stage_a_ingestion(
+					uploaded_document=uploaded_document,
+					category_matrix_reference=_category_matrix(),
+					include_downstream_validation=True,
+					persist_to_db=True,
+					persistence_notes="uploaded_via_web_workflow",
+				)
+
+				if stage_a_result.get("persistence"):
+					batch_id = stage_a_result["persistence"]["upload_batch_id"]
+					db_items = list(
+						CanonicalItem.objects.filter(upload_batch_id=batch_id).order_by("pk")[:20]
+					)
+
+					# Trigger search for search_ready items using async queue by default.
+					search_summaries: dict[int, dict] = {}
+					job_runner = get_default_job_runner()
+					if settings.ASYNC_SEARCH_ENABLED:
+						job_runner.start()
+
+					for db_item in db_items:
+						if not db_item.search_ready:
+							continue
+						if settings.ASYNC_SEARCH_ENABLED:
+							job_id = job_runner.submit_search_job(
+								canonical_item_id=db_item.pk,
+								payload={"source": "upload_workflow"},
+							)
+							queued_jobs.append({"item_id": db_item.pk, "job_id": job_id})
+							search_summaries[db_item.pk] = {
+								"queued": True,
+								"job_id": job_id,
+								"offers_found": None,
+							}
+						else:
+							try:
+								summary = execute_search_for_item(db_item)
+								search_summaries[db_item.pk] = summary
+							except Exception as exc:
+								search_summaries[db_item.pk] = {"error": str(exc), "offers_found": 0}
+
+					for db_item in db_items:
+						s = search_summaries.get(db_item.pk)
+						preview_items.append(
+							{
+								"item_id": db_item.pk,
+								"line_index": db_item.item_code,
+								"name": db_item.name,
+								"category": db_item.category,
+								"isbn": db_item.isbn_normalized,
+								"requires_review": not db_item.search_ready,
+								"offers_found": s.get("offers_found") if s else None,
+								"search_error": s.get("error") if s else None,
+								"search_job_id": s.get("job_id") if s else None,
+							}
+						)
 				else:
-					eligible_items.append(entry)
-		except (json.JSONDecodeError, TypeError, KeyError) as exc:
-			parse_error = str(exc)
+					# Fallback: no persistence — build from extracted_items without item IDs
+					extracted_items = list(stage_a_result.get("extracted_items") or [])
+					for index, item in enumerate(extracted_items[:20]):
+						fields = dict(item.get("fields") or {})
+						preview_items.append(
+							{
+								"item_id": None,
+								"line_index": item.get("line_index", index),
+								"name": (fields.get("name") or {}).get("value") or item.get("line_text") or item.get("text") or "",
+								"category": (fields.get("category") or {}).get("value") or item.get("category") or "",
+								"isbn": (fields.get("isbn") or {}).get("value") or item.get("isbn") or "",
+								"requires_review": bool(item.get("requires_human_review", False)),
+								"offers_found": None,
+								"search_error": None,
+							}
+						)
+			except Exception as exc:
+				error_message = str(exc)
 
 	return render(
 		request,
 		"web/upload_workflow.html",
 		{
-			"items_json": items_json_display,
-			"active_sources": active_sources_raw,
-			"eligible_items": eligible_items,
-			"review_required_items": review_required_items,
-			"parse_error": parse_error,
-			"has_results": request.method == "POST" and parse_error is None,
+			"error_message": error_message,
+			"stage_a_result": stage_a_result,
+			"preview_items": preview_items,
+			"queued_jobs": queued_jobs,
+			"has_results": stage_a_result is not None,
 		},
 	)
+
+
+def item_search_results(request: HttpRequest, item_id: int):
+	"""Display the top offers for a single CanonicalItem."""
+	item = get_object_or_404(CanonicalItem, pk=item_id)
+	offers = OfferRepository().best_offers_for_item(item, limit=10)
+
+	workflow_state = None
+	try:
+		workflow_state = WorkflowState.objects.get(canonical_item=item)
+	except WorkflowState.DoesNotExist:
+		pass
+
+	return render(
+		request,
+		"web/search_results.html",
+		{
+			"item": item,
+			"offers": offers,
+			"workflow_state": workflow_state,
+			"needs_brand_approval": workflow_state is not None and workflow_state.state == WorkflowState.State.BRAND_APPROVAL,
+		},
+	)
+
+
+def run_item_search(request: HttpRequest, item_id: int):
+	"""POST — trigger a fresh search for a single item, then redirect to results."""
+	if request.method != "POST":
+		return redirect("item-search-results", item_id=item_id)
+	item = get_object_or_404(CanonicalItem, pk=item_id)
+	if settings.ASYNC_SEARCH_ENABLED:
+		job_runner = get_default_job_runner()
+		job_runner.start()
+		job_runner.submit_search_job(canonical_item_id=item.pk, payload={"source": "run_item_search"})
+	else:
+		try:
+			execute_search_for_item(item)
+		except Exception:
+			pass
+	return redirect("item-search-results", item_id=item_id)
+
+
+def job_status(request: HttpRequest, job_id: str) -> JsonResponse:
+	status_payload = get_default_job_runner().get_job_status(job_id)
+	status_code = 404 if status_payload.get("status") == "not_found" else 200
+	return JsonResponse(status_payload, status=status_code)
+
+
+_EDITABLE_CATEGORIES = ["book", "dictionary", "apostila", "notebook", "general supplies", "unknown"]
+
+
+def item_edit(request: HttpRequest, item_id: int):
+	"""Edit canonical item fields; writes VersionEvent audit trail on change, then re-searches."""
+	item = get_object_or_404(CanonicalItem, pk=item_id)
+	errors: dict[str, str] = {}
+
+	if request.method == "POST":
+		new_name = (request.POST.get("name") or "").strip()[:255]
+		new_category = (request.POST.get("category") or "").strip()[:64]
+		raw_isbn = re.sub(r"[^0-9Xx]", "", request.POST.get("isbn_normalized") or "").upper()
+		new_isbn = raw_isbn if len(raw_isbn) in (10, 13) else ""
+		new_unit = (request.POST.get("unit") or "un").strip()[:32] or "un"
+		qty_str = (request.POST.get("quantity") or "1").strip().replace(",", ".")
+		try:
+			new_qty = Decimal(qty_str)
+			if new_qty <= 0:
+				new_qty = Decimal("1")
+		except InvalidOperation:
+			new_qty = Decimal("1")
+
+		if not new_name:
+			errors["name"] = "Name is required."
+
+		if not errors:
+			ver_repo = VersionEventRepository()
+			material_id = f"canonical_item_{item.pk}"
+			now = timezone.now()
+			version_number = VersionEvent.objects.filter(material_id=material_id).count() + 1
+
+			for field_name, old_val, new_val in [
+				("name", item.name, new_name),
+				("category", item.category, new_category),
+				("isbn_normalized", item.isbn_normalized, new_isbn),
+				("quantity", str(item.quantity), str(new_qty)),
+				("unit", item.unit, new_unit),
+			]:
+				if old_val != new_val:
+					ver_repo.append(
+						material_id=material_id,
+						version_number=version_number,
+						field_name=field_name,
+						old_value=old_val,
+						new_value=new_val,
+						timestamp=now,
+						actor_id="web_user",
+						reason_code="user_edit",
+					)
+
+			item.name = new_name
+			item.category = new_category
+			item.isbn_normalized = new_isbn
+			item.quantity = new_qty
+			item.unit = new_unit
+			item.search_ready = True
+			item.save(update_fields=["name", "category", "isbn_normalized", "quantity", "unit", "search_ready"])
+			return redirect("run-item-search", item_id=item.pk)
+
+	history = VersionEvent.objects.filter(material_id=f"canonical_item_{item.pk}").order_by("version_number")
+	return render(
+		request,
+		"web/item_edit.html",
+		{
+			"item": item,
+			"categories": _EDITABLE_CATEGORIES,
+			"errors": errors,
+			"history": history,
+		},
+	)
+
+
+def batch_export(request: HttpRequest, batch_id: int):
+	"""Preview best offer per item for a batch, with CSV download link."""
+	batch = get_object_or_404(UploadBatch, pk=batch_id)
+	items = list(CanonicalItem.objects.filter(upload_batch=batch).order_by("name"))
+	rows = []
+	for item in items:
+		best = Offer.objects.filter(canonical_item=item).order_by("total_price").first()
+		rows.append({"item": item, "offer": best})
+	return render(
+		request,
+		"web/batch_export.html",
+		{"batch": batch, "rows": rows},
+	)
+
+
+def batch_export_download(request: HttpRequest, batch_id: int):
+	"""Stream a CSV with best offer per item for the batch."""
+	batch = get_object_or_404(UploadBatch, pk=batch_id)
+	items = list(CanonicalItem.objects.filter(upload_batch=batch).order_by("name"))
+
+	curated_records: list[dict] = []
+	version_by_material: dict[str, dict] = {}
+	for item in items:
+		best = Offer.objects.filter(canonical_item=item).order_by("total_price").first()
+		material_id = f"canonical_item_{item.pk}"
+		history_entries = list(
+			VersionEvent.objects.filter(material_id=material_id)
+			.order_by("version_number")
+			.values("version_number", "actor_id", "timestamp")
+		)
+		version_by_material[material_id] = {
+			"latestVersion": history_entries[-1]["version_number"] if history_entries else 0,
+			"entries": [{"actor_id": entry.get("actor_id", "")} for entry in history_entries],
+		}
+		curated_records.append(
+			{
+				"materialId": material_id,
+				"latestValues": {
+					"name": item.name,
+					"category": item.category,
+					"quantity": str(item.quantity),
+					"unit": item.unit,
+					"price": str(best.total_price) if best else "",
+					"source": (best.source_site.site_id if best and best.source_site else ""),
+					"url": (best.product_url if best else ""),
+				},
+			}
+		)
+
+	export_result = export_formatter_delivery(
+		curated_set={"records": curated_records},
+		version_context={"byMaterial": version_by_material},
+		export_request={"format": "csv"},
+		user_context={"userId": "web_user"},
+		format_adapters=None,
+		export_event_log=[],
+	)
+	csv_content = export_result.get("deliveryResult", {}).get("artifact") or ""
+
+	response = HttpResponse(csv_content, content_type="text/csv; charset=utf-8")
+	filename = f"lista_precos_batch_{batch_id}.csv"
+	response["Content-Disposition"] = f'attachment; filename="{filename}"'
+	return response
 
 
 def exclusivity_demo(request: HttpRequest):

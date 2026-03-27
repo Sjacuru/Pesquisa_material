@@ -135,3 +135,76 @@ Canonical source references:
 Architecture phase may proceed when all outputs above reference this ADR as baseline and remain traceable to the 19 approved MDAP modules.
 
 **Approval Marker:** ✅ Decisions locked for Architecture artifact generation.
+
+---
+
+## ADR-0002: Hybrid LLM Directive Extraction Architecture Decision
+
+**Status**: DRAFT — PENDING STAKEHOLDER SIGN-OFF (requires FR-023 PRD addendum approval)  
+**Date**: March 27, 2026  
+**References**: PRD_ADDENDUM_FR023_AI_DIRECTIVE_EXTRACTION.md; EPIC_AMENDMENT_001_CIR002; MDAP_MIA-001
+
+---
+
+### ⛔ Critical Status: Proposed, Not Baseline
+
+ADR-0001 remains the canonical architecture baseline. ADR-0002 is a proposed amendment and MUST NOT be treated as active baseline until all approval gates are complete.
+
+Approval gates required:
+1. PRD Addendum FR-023 signed off
+2. EPIC Amendment CIR-002 approved
+3. MDAP MIA-001 human-gate approved
+
+Approval paths:
+- **APPROVED**: ADR-0002 constraints become active and merge into baseline architecture governance.
+- **CONDITIONAL**: ADR-0002 remains pending with explicit conditions and deadlines.
+- **REJECTED / REWORK**: ADR-0002 is superseded by revised amendment draft; ADR-0001 remains sole baseline.
+
+---
+
+### Decision
+
+**Adopt a deterministic-first, LLM-fallback hybrid architecture for school directive field extraction (school_exclusive, required_sellers, preferred_sellers).**
+
+Deterministic notation parsing (MODULE-001-08) runs for all items and is authoritative when confidence ≥ THRESHOLD-LLM-01. LLM invocation (MODULE-001-09) is conditional — triggered only when deterministic confidence falls below the threshold. A reconciliation module (MODULE-001-10) merges outputs using an explicit three-rule precedence policy and writes a full audit record.
+
+This decision is **Option C** selected after explicit comparison:
+- Option A (deterministic only) rejected: too many items routed to manual review for non-standard formats
+- Option B (LLM full replacement) rejected: non-deterministic, high cost, no audit trace guarantee
+
+---
+
+### Amendments to ADR-0001 Guardrails
+
+| Guardrail | Amendment |
+|-----------|-----------|
+| FR/NFR ID immutability (FR-001..FR-021) | Extended: FR-022 (via PRD_ADDENDUM_FR022 + CIR-001) and FR-023 (via PRD_ADDENDUM_FR023 + CIR-002) added. Proposed canonical range on approval: FR-001..FR-023 (both FR-022 and FR-023 pending sign-off via separate CIRs) |
+| Preserve 19-module MDAP decomposition | Extended: +4 pending modules (MODULE-001-08, 001-09, 001-10 via CIR-002; MODULE-003-05 via CIR-001). On approval: 23 total modules |
+| No out-of-scope features without PRD amendment | Satisfied: FR-023 PRD addendum filed and marked DRAFT pending sign-off |
+| Keep carry-forward items explicit | New carry-forward: THRESHOLD-LLM-01 through THRESHOLD-LLM-05 (all unresolved, must be stakeholder decisions) |
+
+### Additional Architecture Carry-Forward Items (Added by ADR-0002)
+
+| Item | Scope | Resolution Required By |
+|------|-------|----------------------|
+| THRESHOLD-LLM-01 | LLM trigger confidence floor | Stakeholder decision — before Stage B |
+| THRESHOLD-LLM-02 | LLM auto-acceptance floor | Stakeholder decision — before Stage B |
+| THRESHOLD-LLM-03 | LLM call timeout budget | Stakeholder decision — before Stage B |
+| THRESHOLD-LLM-04 | Shadow mode precision floor for live-promotion | Stakeholder decision — before Stage D |
+| THRESHOLD-LLM-05 | Shadow mode minimum sample size | Stakeholder decision — before Stage D |
+| OQ-FR023-02 (LLM rationale persistence model) | **Decision Question**: Store LLM rationale + call payload in (A) versioned audit trail JSON record (MODULE-004-02 extended schema), or (B) separate `llm_call_log` table? Impact: MODULE-004-02 schema extension required if (A) is chosen; timing: PRD sign-off before MDAP detailed design | **ESCALATED: PRD sign-off before MDAP implementation design** |
+| MODULE-004-02 schema coordination | Align reconciliation_audit_record contract with MODULE-004-02 (EPIC-004 Versioned Audit Trail); required for Stage C gate (MDAP Section 6) | Before Stage C — coordinate with EPIC-004 team |
+| LLM provider/model selection | Architecture implementation | Before Stage B — deferred to Architecture owner |
+| LLM API credential management pattern | Architecture/security | Before Stage B — must follow secure-credential baseline |
+| Prompt versioning strategy | Architecture implementation | Before Stage B |
+
+### New Architecture Guardrails (ADR-0002)
+
+- LLM calls are batch/async only — NEVER synchronous on user-facing request path
+- LLM prompt content must contain NO personal data (item text and category context only)
+- Shadow mode is a deployment configuration flag — default ON until THRESHOLD-LLM-04 precision gate clears
+- Shadow mode exit requires human gate sign-off (cannot be automated gate)
+- All LLM call results (success and failure) must be written to audit trail BEFORE the item advances in pipeline
+- LLM output NEVER overwrites a deterministic result that is above THRESHOLD-LLM-01
+
+**Approval Marker:** DRAFT — Locked for implementation planning only after PRD_ADDENDUM_FR023 is signed off and CIR-002 / MIA-001 are approved.

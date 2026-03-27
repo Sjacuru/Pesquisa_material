@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Resultados de busca — {{ item.name }}</title>
+  <style>
+    body { font-family: sans-serif; max-width: 960px; margin: 24px auto; padding: 0 16px; }
+    nav { background: #f0f0f0; padding: 8px 12px; margin-bottom: 24px; border-radius: 4px; }
+    nav a { margin-right: 16px; text-decoration: none; color: #0066cc; }
+    nav a:hover { text-decoration: underline; }
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+    th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { background: #f7f7f7; }
+    .warning-box { background: #fff3cd; color: #856404; padding: 10px 14px; border-radius: 4px; margin-bottom: 16px; }
+    .info-box { background: #cce5ff; color: #004085; padding: 10px 14px; border-radius: 4px; margin-bottom: 16px; }
+    .muted { color: #666; font-size: 0.9em; }
+    .buy-btn { display: inline-block; background: #28a745; color: white; padding: 4px 12px; border-radius: 4px; text-decoration: none; font-size: 0.9em; }
+    .buy-btn:hover { background: #218838; }
+    .badge-new { color: #155724; background: #d4edda; padding: 2px 8px; border-radius: 10px; font-size: 0.85em; }
+    .badge-used { color: #856404; background: #fff3cd; padding: 2px 8px; border-radius: 10px; font-size: 0.85em; }
+    .badge-unknown { color: #545b62; background: #e2e3e5; padding: 2px 8px; border-radius: 10px; font-size: 0.85em; }
+    .rescan-btn { background: #0066cc; color: white; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.9em; }
+    .rescan-btn:hover { background: #0052a3; }
+    .meta-table { width: auto; margin-bottom: 20px; }
+    .meta-table th { width: 140px; }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <strong>Workflow:</strong>
+    <a href="{% url 'upload-workflow' %}">&#8679; Upload &amp; Stage A</a>
+    <a href="{% url 'exclusivity-demo' %}">Demo Scenarios</a>
+  </nav>
+
+  <h1>Resultados de busca</h1>
+
+  <table class="meta-table">
+    <tr><th>Nome</th><td>{{ item.name }}</td></tr>
+    <tr><th>Categoria</th><td>{{ item.category }}</td></tr>
+    {% if item.isbn_normalized %}
+    <tr><th>ISBN</th><td>{{ item.isbn_normalized }}</td></tr>
+    {% endif %}
+    <tr><th>Quantidade</th><td>{{ item.quantity }} {{ item.unit }}</td></tr>
+    <tr><th>Pronto para busca</th><td>{% if item.search_ready %}Sim{% else %}Não (requer revisão){% endif %}</td></tr>
+    {% if workflow_state %}
+    <tr><th>Estado</th><td>{{ workflow_state.state }}</td></tr>
+    {% endif %}
+  </table>
+
+  {% if needs_brand_approval %}
+  <div class="warning-box">
+    <strong>Atenção:</strong> Nenhuma oferta foi encontrada. Verifique o nome/categoria do item ou tente buscar novamente.
+  </div>
+  {% endif %}
+
+  <div style="margin-bottom: 20px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+    <form method="post" action="{% url 'run-item-search' item.pk %}" style="display:inline;">
+      {% csrf_token %}
+      <button class="rescan-btn" type="submit">&#8635; Buscar novamente</button>
+    </form>
+    <a href="{% url 'item-edit' item.pk %}" style="display:inline-block; background:#6c757d; color:white; padding:6px 14px; border-radius:4px; text-decoration:none; font-size:0.9em;">&#9998; Editar dados do item</a>
+    <a href="{% url 'batch-export' item.upload_batch_id %}" style="display:inline-block; background:#17a2b8; color:white; padding:6px 14px; border-radius:4px; text-decoration:none; font-size:0.9em;">&#11123; Exportar lista do batch</a>
+  </div>
+
+  {% if offers %}
+  <h2>Melhores ofertas ({{ offers|length }})</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Site</th>
+        <th>Vendedor</th>
+        <th>Produto</th>
+        <th>Preço item</th>
+        <th>Frete</th>
+        <th>Total</th>
+        <th>Cond.</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for offer in offers %}
+      <tr>
+        <td class="muted">{{ forloop.counter }}</td>
+        <td>{{ offer.source_site.label|default:"-" }}</td>
+        <td>{{ offer.seller_name|default:"-" }}</td>
+        <td>{{ offer.product_title|truncatechars:80 }}</td>
+        <td>R$&nbsp;{{ offer.item_price }}</td>
+        <td>
+          {% if offer.shipping_cost is None %}
+            <span class="muted">?</span>
+          {% elif offer.shipping_cost == 0 %}
+            <span style="color:#155724;">Grátis</span>
+          {% else %}
+            R$&nbsp;{{ offer.shipping_cost }}
+          {% endif %}
+        </td>
+        <td><strong>R$&nbsp;{{ offer.total_price }}</strong></td>
+        <td>
+          {% if offer.condition == "new" %}
+            <span class="badge-new">Novo</span>
+          {% elif offer.condition == "used" %}
+            <span class="badge-used">Usado</span>
+          {% else %}
+            <span class="badge-unknown">?</span>
+          {% endif %}
+        </td>
+        <td>
+          <a class="buy-btn" href="{{ offer.product_url }}" target="_blank" rel="noopener noreferrer">Comprar</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="info-box">
+    Nenhuma oferta encontrada ainda.
+    {% if not item.search_ready %}
+    Este item está marcado como <em>não pronto para busca</em> — requer revisão humana antes da busca automática.
+    {% else %}
+    Clique em <strong>Buscar novamente</strong> para tentar agora.
+    {% endif %}
+  </div>
+  {% endif %}
+
+</body>
+</html>

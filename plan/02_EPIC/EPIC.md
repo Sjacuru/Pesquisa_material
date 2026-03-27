@@ -354,7 +354,7 @@ If anomalies are discovered during decomposition, surface them with:
 Distinguish hard blocking (must sequence) from soft (can parallel):
 
 - Hard Blocking: "EPIC-001 → EPIC-002: User must authenticate before profile access"
-- Soft: "EPIC-002 ⟹ EPIC-005: Can parallel, but UX better if sequenced"
+- Soft: "EPIC-002 ⟹ EPIC-004: Can parallel, but UX better if sequenced"
 
 **Enhancement 3: Strategic Goal Constraint**
 Strategic Goal must restate a goal from PRD, not invent new ones.

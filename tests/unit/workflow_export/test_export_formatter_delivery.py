@@ -194,3 +194,18 @@ def test_delivery_result_distinguishes_rendering_failure_state() -> None:
 
 	assert result["deliveryResult"]["status"] == "rendering_failure"
 	assert result["deliveryResult"]["reasonCode"] == "rendering_failed"
+
+
+def test_csv_delivery_includes_business_readable_headers() -> None:
+	result = export_formatter_delivery(
+		_curated_set(),
+		_version_context(),
+		{"format": "csv"},
+		_user_context(),
+		format_adapters=None,
+		export_event_log=[],
+	)
+
+	artifact = result["deliveryResult"]["artifact"]
+	assert isinstance(artifact, str)
+	assert "Item,Category,Quantity,Unit,Price,Source,URL,Version,Last Edited By,Notes" in artifact
