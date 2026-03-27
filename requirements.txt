@@ -8,3 +8,5 @@ pdfplumber>=0.10.0
 pypdf>=4.0.0
 pypdfium2>=4.30.0
 easyocr>=1.7.1
+pytest>=9.0
+pytest-django>=4.12

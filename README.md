@@ -4,6 +4,27 @@
 
 This guide explains how to use **three separate prompts** with GitHub Copilot to create a complete, structured PRD that feeds into the EPIC phase. The three-phase approach reduces hallucination risk by breaking the work into reviewable chunks with cross-phase dependencies.
 
+## Project Bootstrap (Environment + Prompt Path)
+
+### Main Python Environment
+
+This project uses the Conda environment `matfinder` as the primary runtime.
+
+1. Activate: `conda activate matfinder`
+2. Install dependencies: `python -m pip install -r requirements.txt`
+3. Django health check: `python manage.py check`
+4. Migration state check: `python manage.py makemigrations --check --dry-run`
+5. Full test run: `python -m pytest`
+
+VS Code workspace default interpreter is set to:
+`C:\Users\sjacu\anaconda3\envs\matfinder\python.exe`
+
+### GitHub Prompt Folder Path
+
+Canonical path is `.github/prompts/`.
+
+If you see `.github/promps` in a local note/tooling message, treat it as a typo and use `.github/prompts/`.
+
 ---
 
 ## Timeline & Dependencies

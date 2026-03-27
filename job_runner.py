@@ -18,6 +18,20 @@ from search_ranking.search_executor import execute_search_for_item
 SearchWorker = Callable[[CanonicalItem, float], dict]
 
 
+def _safe_close_old_connections() -> None:
+    """Best-effort DB connection cleanup for background threads.
+
+    Under pytest-django, background threads may hit a DB access blocker during
+    teardown; this must not surface as an unhandled thread exception.
+    """
+    try:
+        close_old_connections()
+    except (OperationalError, RuntimeError):
+        pass
+    except Exception:
+        pass
+
+
 class JobRunner:
     """Background worker for search jobs with retry support."""
 
@@ -90,7 +104,7 @@ class JobRunner:
         while self._running:
             try:
                 # Ensure this thread does not reuse stale DB connections.
-                close_old_connections()
+                _safe_close_old_connections()
                 self.process_pending_once()
             except OperationalError:
                 # SQLite may transiently lock under concurrent tests; retry on next loop.
@@ -99,7 +113,7 @@ class JobRunner:
                 # Keep background loop alive even if one iteration fails.
                 pass
             finally:
-                close_old_connections()
+                _safe_close_old_connections()
             time.sleep(self.poll_interval_seconds)
 
     def _execute_job(self, job: JobQueueEntry) -> None:
