@@ -49,6 +49,411 @@ def _normalize_space(value: str) -> str:
 	return " ".join((value or "").strip().split())
 
 
+_BOOKISH_CATEGORIES = {"book", "dictionary", "apostila"}
+_BOOK_CORE_SEGMENT_KEYWORDS = (
+	"student",
+	"livre",
+	"cahier",
+	"dictionary",
+	"dicionário",
+	"niveau",
+	"reader",
+	"workbook",
+)
+_BOOK_SUBJECT_SEGMENTS = {
+	"ciências",
+	"história",
+	"geografia",
+	"matemática",
+	"língua portuguesa",
+	"língua inglesa",
+	"língua francesa",
+	"ensino religioso",
+	"educação musical",
+}
+_OBSERVATION_PREFIXES = (
+	"de uso",
+	"será ",
+	"já ",
+	"pode ",
+	"ver ",
+	"para ",
+	"não ",
+	"uso ",
+)
+_OBSERVATION_KEYWORDS = (
+	"artes visuais",
+	"educação musical",
+	"língua portuguesa",
+	"língua inglesa",
+	"língua francesa",
+	"ensino religioso",
+	"geografia",
+	"história",
+	"ciências",
+	"matemática",
+	"reprografia",
+	"csb",
+	"tinta azul",
+	"tinta vermelha",
+	"edição",
+	"edição catequética",
+)
+
+
+def _clean_note_text(value: str) -> str:
+	text = _normalize_space(value)
+	text = text.strip("-–:;,. ")
+	return _normalize_space(text)
+
+
+def _looks_like_observation_segment(segment: str, category: str) -> bool:
+	lower = segment.lower().strip()
+	if not lower:
+		return False
+	if any(lower.startswith(prefix) for prefix in _OBSERVATION_PREFIXES):
+		return True
+	if any(keyword in lower for keyword in _OBSERVATION_KEYWORDS):
+		return True
+	if category not in _BOOKISH_CATEGORIES and lower.startswith("para "):
+		return True
+	if category not in _BOOKISH_CATEGORIES and any(color in lower for color in ("azul", "vermelha", "vermelho", "preta", "preto")):
+		return True
+	if len(lower) <= 5 and lower.upper() == lower and any(ch.isalpha() for ch in lower):
+		return True
+	return False
+
+
+def _extract_parenthetical_notes(name: str) -> tuple[str, list[str]]:
+	notes = [_clean_note_text(match.group(1)) for match in re.finditer(r"\(([^)]+)\)", name)]
+	clean_name = re.sub(r"\s*\(([^)]+)\)", "", name)
+	return _normalize_space(clean_name), [note for note in notes if note]
+
+
+def _extract_trailing_author_note(name: str) -> tuple[str, str]:
+	match = re.match(
+		r"^(?P<title>.+)\s+(?P<author>[A-ZÀ-ÖØ-Ý][\wÀ-ÖØ-öø-ÿ'’.-]+(?:\s+[A-ZÀ-ÖØ-Ý][\wÀ-ÖØ-öø-ÿ'’.-]+){1,4})$",
+		name,
+	)
+	if not match:
+		return name, ""
+	title = _normalize_space(match.group("title"))
+	author = _normalize_space(match.group("author"))
+	if len(title.split()) < 2:
+		return name, ""
+	if any(char.isdigit() for char in author):
+		return name, ""
+	if any(keyword in author.lower() for keyword in ("língua", "portuguesa", "francesa", "inglesa", "ciências", "história", "matemática")):
+		return name, ""
+	return title, author
+
+
+def _looks_like_book_note_segment(segment: str) -> bool:
+	lower = segment.lower().strip()
+	if not lower:
+		return False
+	if re.fullmatch(r"niveau\s+[a-z]?\d+", lower):
+		return False
+	if _looks_like_observation_segment(segment, "book"):
+		return True
+	if lower in _BOOK_SUBJECT_SEGMENTS:
+		return True
+	if re.search(r"\b\d{4}\b", lower):
+		return True
+	if re.search(r"\b\d+ª?\s*(?:ano|ed)\b", lower):
+		return True
+	if lower in {"csb"}:
+		return True
+	return False
+
+
+def _split_name_and_notes(name: str, category: str) -> tuple[str, str]:
+	base_name = _normalize_space(name)
+	notes: list[str] = []
+
+	base_name, paren_notes = _extract_parenthetical_notes(base_name)
+	notes.extend(paren_notes)
+
+	if category in _BOOKISH_CATEGORIES:
+		segments = [_normalize_space(segment) for segment in re.split(r"\s+[–-]\s+", base_name) if _normalize_space(segment)]
+		if len(segments) > 1:
+			name_segments = [segments[0]]
+			for segment in segments[1:]:
+				lower = segment.lower()
+				if len(name_segments) == 1 and not _looks_like_book_note_segment(segment):
+					name_segments.append(segment)
+				elif len(name_segments) == 1 and any(keyword in lower for keyword in _BOOK_CORE_SEGMENT_KEYWORDS):
+					name_segments.append(segment)
+				else:
+					notes.append(segment)
+			base_name = " - ".join(name_segments)
+
+		base_name, author_note = _extract_trailing_author_note(base_name)
+		if author_note:
+			notes.append(author_note)
+	else:
+		segments = [_normalize_space(segment) for segment in re.split(r"\s+[–-]\s+", base_name) if _normalize_space(segment)]
+		if len(segments) > 1:
+			base_name = segments[0]
+			for segment in segments[1:]:
+				if _looks_like_observation_segment(segment, category):
+					notes.append(segment)
+				else:
+					base_name = _normalize_space(f"{base_name} {segment}")
+
+		para_match = re.match(r"^(?P<name>.+?)\s+(?P<obs>para\s+.+)$", base_name, flags=re.IGNORECASE)
+		if para_match:
+			base_name = _normalize_space(para_match.group("name"))
+			notes.append(_clean_note_text(para_match.group("obs")))
+
+	base_name = _normalize_space(base_name).strip("-–:;,. ")
+	clean_notes = [_clean_note_text(note) for note in notes if _clean_note_text(note)]
+	clean_notes = list(dict.fromkeys(clean_notes))
+	return base_name, " | ".join(clean_notes)
+
+
+_BOOK_SECTION_HEADINGS = {
+	"língua portuguesa": "book",
+	"matemática": "book",
+	"geografia": "apostila",
+	"história": "book",
+	"ciências": "book",
+	"educação musical": "book",
+	"ensino religioso": "book",
+	"língua inglesa": "book",
+	"língua francesa": "book",
+	"paradidático:": "book",
+	"material opcional:": "dictionary",
+	"dicionário:": "dictionary",
+}
+
+_IGNORED_PAGE_HEADINGS = (
+	"livraria e papelaria",
+	"observações",
+	"uniformes",
+	"endereços para compra",
+	"anotações",
+)
+
+
+def _normalize_pdf_lines(text: str) -> list[str]:
+	return [_normalize_space(line) for line in str(text or "").splitlines() if _normalize_space(line)]
+
+
+def _page_heading(lines: list[str]) -> str:
+	for line in lines[:3]:
+		if line.isdigit():
+			continue
+		return line.lower()
+	return ""
+
+
+def _looks_like_author_line(line: str) -> bool:
+	if any(char.isdigit() for char in line):
+		return False
+	if line.startswith(("Editora", "ISBN", "(")):
+		return False
+	lower = line.lower()
+	if " – " in lower and "tradução" in lower:
+		return True
+	if "," not in line and " e " not in lower and " and " not in lower:
+		return False
+	words = [word for word in re.split(r"\s+", line) if word]
+	if len(words) < 2 or len(words) > 12:
+		return False
+	capitalized = 0
+	for word in words:
+		clean = word.strip(",.;:()[]-'\"")
+		if not clean:
+			continue
+		if clean[0].isupper():
+			capitalized += 1
+	return capitalized >= max(2, len(words) - 1)
+
+
+def _looks_like_metadata_line(line: str) -> bool:
+	lower = line.lower()
+	if lower.startswith("isbn"):
+		return True
+	if lower.startswith("editora"):
+		return True
+	if lower.startswith("autor:") or lower.startswith("autores:"):
+		return True
+	if lower.startswith("edição") or lower.startswith("ed.") or re.search(r"\b\d+ª?\s*ed\.", lower):
+		return True
+	if line.startswith("("):
+		return True
+	if _looks_like_author_line(line):
+		return True
+	if lower in {"moderna", "cle international", "collection découverte bd"}:
+		return True
+	return False
+
+
+def _looks_like_fragment_line(line: str) -> bool:
+	lower = line.lower().strip()
+	if not lower:
+		return True
+	if lower in {"único"}:
+		return True
+	if lower.startswith("os alunos que não estudavam"):
+		return True
+	if lower.startswith("reprografia em fevereiro"):
+		return True
+	if line[:1].islower():
+		return True
+	if len(line.split()) <= 2 and len(line) <= 24:
+		return True
+	return False
+
+
+def _finalize_book_candidate(current: dict | None, entries: list[dict]) -> None:
+	if not current:
+		return
+	title = _normalize_space(" ".join(current.get("title_lines") or []))
+	if not title:
+		return
+	title, notes = _split_name_and_notes(title, current.get("category") or "book")
+	if not title:
+		return
+	entries.append(
+		{
+			"name": title,
+			"notes": notes,
+			"category": current.get("category") or "book",
+			"quantity": "1 un",
+			"isbn": current.get("isbn") or "",
+		}
+	)
+
+
+def _parse_book_column_text(column_text: str) -> list[dict]:
+	lines = _normalize_pdf_lines(column_text)
+	entries: list[dict] = []
+	current: dict | None = None
+	current_category = "book"
+
+	for line in lines:
+		lower = line.lower()
+		if lower == "livros" or line.isdigit():
+			continue
+		if lower.startswith("os alunos que não estudavam"):
+			continue
+		if lower in _BOOK_SECTION_HEADINGS:
+			_finalize_book_candidate(current, entries)
+			current = None
+			current_category = _BOOK_SECTION_HEADINGS[lower]
+			continue
+
+		isbn_value, _ = _extract_isbn_field(line)
+		if isbn_value:
+			if current is None:
+				current = {"title_lines": [line], "category": current_category, "isbn": isbn_value}
+			else:
+				current["isbn"] = isbn_value
+			continue
+
+		if current is None:
+			current = {"title_lines": [line], "category": current_category, "isbn": ""}
+			continue
+
+		if _looks_like_metadata_line(line) or lower.startswith("os alunos que não estudavam"):
+			current.setdefault("metadata", []).append(line)
+			continue
+
+		if _looks_like_fragment_line(line):
+			if current.get("metadata"):
+				current.setdefault("metadata", []).append(line)
+			else:
+				current.setdefault("title_lines", []).append(line)
+			continue
+
+		if current.get("metadata") or current.get("isbn"):
+			_finalize_book_candidate(current, entries)
+			current = {"title_lines": [line], "category": current_category, "isbn": ""}
+		else:
+			current.setdefault("title_lines", []).append(line)
+
+	_finalize_book_candidate(current, entries)
+	return entries
+
+
+def _parse_supply_page_text(page_text: str) -> list[dict]:
+	raw_lines: list[str] = []
+	for raw_line in str(page_text or "").splitlines():
+		split_line = re.sub(r"\s{2,}(?=\d+\s+[A-Za-zÀ-ÖØ-öø-ÿ])", "\n", raw_line)
+		raw_lines.extend(split_line.splitlines())
+
+	lines = [_normalize_space(line) for line in raw_lines if _normalize_space(line)]
+	entries: list[dict] = []
+	current: str | None = None
+
+	for line in lines:
+		lower = line.lower()
+		if lower in {"material escolar", "material e", "escolar"} or line.isdigit():
+			continue
+		if re.match(r"^\d+\s+", line):
+			if current:
+				entries.append(current)
+			current = line
+		elif current:
+			current = _normalize_space(f"{current} {line}")
+
+	if current:
+		entries.append(current)
+
+	parsed_entries: list[dict] = []
+	for entry in entries:
+		quantity_value, _ = _extract_quantity_field(entry)
+		name = re.sub(r"^\d+(?:[.,]\d+)?\s*(?:un|unidade|unidades)?\s*", "", entry, count=1, flags=re.IGNORECASE).strip()
+		if not name:
+			continue
+		category = "general supplies" if "caderno" not in name.lower() else "notebook"
+		clean_name, clean_notes = _split_name_and_notes(name, category)
+		parsed_entries.append(
+			{
+				"name": clean_name,
+				"notes": clean_notes,
+				"category": category,
+				"quantity": quantity_value or "1 un",
+				"isbn": "",
+			}
+		)
+	return parsed_entries
+
+
+def _extract_page_columns(page) -> list[str]:
+	midpoint = page.width / 2
+	left_text = page.crop((0, 0, midpoint, page.height)).extract_text() or ""
+	right_text = page.crop((midpoint, 0, page.width, page.height)).extract_text() or ""
+	if len(left_text.strip()) >= 80 and len(right_text.strip()) >= 80:
+		return [left_text, right_text]
+	full_text = page.extract_text() or ""
+	return [full_text] if full_text.strip() else []
+
+
+def _extract_structured_candidates_from_pdf(pdf_bytes: bytes) -> list[dict]:
+	entries: list[dict] = []
+	try:
+		with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+			for page in pdf.pages:
+				full_text = page.extract_text() or ""
+				lines = _normalize_pdf_lines(full_text)
+				heading = _page_heading(lines)
+				if not heading:
+					continue
+				if any(marker in heading for marker in _IGNORED_PAGE_HEADINGS):
+					continue
+				if "livros" in heading:
+					for column_text in _extract_page_columns(page):
+						entries.extend(_parse_book_column_text(column_text))
+				elif "material" in heading:
+					entries.extend(_parse_supply_page_text(full_text))
+	except Exception:
+		return []
+	return entries
+
+
 def _decode_pdf_text(uploaded_pdf_document: dict) -> str:
 	content_type = str(uploaded_pdf_document.get("content_type") or "").lower()
 	if content_type != "application/pdf":
@@ -127,16 +532,20 @@ def _extract_pdf_native_text(pdf_bytes: bytes) -> tuple[str, float]:
 	try:
 		with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
 			all_text = ""
+			non_empty_pages = 0
 			for page in pdf.pages:
 				page_text = page.extract_text() or ""
+				if page_text.strip():
+					non_empty_pages += 1
 				all_text += page_text + "\n"
 			
-			# Compute coverage: text length / (max possible reasonable length per page)
-			# Heuristic: assume ~3000 chars per page for typical school list PDF
-			expected_length = len(pdf.pages) * 3000
-			coverage = min(1.0, len(all_text) / max(expected_length, 100))
+			page_count = max(1, len(pdf.pages))
+			expected_length = page_count * 700
+			char_score = min(1.0, len(all_text.strip()) / max(expected_length, 100))
+			page_score = non_empty_pages / page_count
+			coverage = round(min(1.0, (char_score * 0.8) + (page_score * 0.2)), 2)
 			
-			return all_text.strip(), round(coverage, 2)
+			return all_text.strip(), coverage
 	except Exception as e:
 		return "", 0.0
 
@@ -429,7 +838,11 @@ def extract_item_candidates(
 		)
 	
 	pdf_text = extraction_result["text"]
-	
+
+	structured_candidates: list[dict] = []
+	if pdf_bytes is not None and isinstance(pdf_bytes, (bytes, bytearray)) and bytes(pdf_bytes).startswith(b"%PDF"):
+		structured_candidates = _extract_structured_candidates_from_pdf(bytes(pdf_bytes))
+
 	# Parse extracted text into lines
 	lines = [_normalize_space(line) for line in pdf_text.splitlines() if _normalize_space(line)]
 	notation_rules = _build_document_notation_rules(lines)
@@ -444,10 +857,42 @@ def extract_item_candidates(
 	extracted_items: list[dict] = []
 	confidence_bands = {"accept": 0, "review": 0, "reject": 0}
 
-	for line_index, line_text in enumerate(lines):
-		category_value, category_conf = _line_category(line_text, category_matrix_reference)
-		quantity_value, quantity_conf = _extract_quantity_field(line_text)
-		isbn_value, isbn_conf = _extract_isbn_field(line_text)
+	candidate_rows: list[dict] = []
+	if structured_candidates:
+		for candidate in structured_candidates:
+			candidate_rows.append(
+				{
+					"line_text": str(candidate.get("name") or ""),
+					"notes_value": str(candidate.get("notes") or ""),
+					"category_value": str(candidate.get("category") or "unknown"),
+					"quantity_value": str(candidate.get("quantity") or "1 un"),
+					"isbn_value": str(candidate.get("isbn") or ""),
+				}
+			)
+	else:
+		for line_text in lines:
+			category_value, _ = _line_category(line_text, category_matrix_reference)
+			quantity_value, _ = _extract_quantity_field(line_text)
+			isbn_value, _ = _extract_isbn_field(line_text)
+			candidate_rows.append(
+				{
+					"line_text": line_text,
+					"notes_value": "",
+					"category_value": category_value,
+					"quantity_value": quantity_value,
+					"isbn_value": isbn_value,
+				}
+			)
+
+	for line_index, candidate_row in enumerate(candidate_rows):
+		line_text = candidate_row["line_text"]
+		notes_value = candidate_row.get("notes_value") or ""
+		category_value = candidate_row["category_value"]
+		quantity_value = candidate_row["quantity_value"]
+		isbn_value = candidate_row["isbn_value"]
+		_, category_conf = _line_category(line_text, category_matrix_reference)
+		_, quantity_conf = _extract_quantity_field(quantity_value or line_text)
+		_, isbn_conf = _extract_isbn_field(isbn_value or line_text)
 		(
 			school_exclusive,
 			required_sellers,
@@ -465,6 +910,10 @@ def extract_item_candidates(
 			"name": {
 				"value": name_value,
 				"confidence": _clamp_confidence(name_conf),
+			},
+			"notes": {
+				"value": notes_value,
+				"confidence": _clamp_confidence(0.88 if notes_value else 0.0),
 			},
 			"category": {
 				"value": category_value,

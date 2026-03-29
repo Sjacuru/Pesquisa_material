@@ -10,8 +10,12 @@
 # HUMAN_REVIEW: Yes — user-facing workflow entry layer.
 
 import re
+from io import BytesIO
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
+from urllib.parse import urlparse
 
+import httpx
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -19,11 +23,12 @@ from django.utils import timezone
 
 from intake_canonicalization.stage_a_ingestion_pipeline import process_stage_a_ingestion
 from job_runner import get_default_job_runner
-from persistence.models import CanonicalItem, Offer, UploadBatch, VersionEvent, WorkflowState
-from persistence.repositories import OfferRepository, VersionEventRepository, WorkflowStateRepository
+from persistence.models import CanonicalItem, Offer, SearchJob, SourceSite, UploadBatch, VersionEvent, WorkflowState
+from persistence.repositories import OfferRepository, SearchExecutionRepository, SourceSiteRepository, VersionEventRepository, WorkflowStateRepository
 from search_ranking.query_orchestrator import orchestrate_query
 from search_ranking.school_exclusivity_resolver import resolve_school_exclusivity
 from search_ranking.search_executor import execute_search_for_item
+from source_governance.website_onboarding_trust_classifier import evaluate_website_onboarding
 from workflow_export.export_formatter_delivery import export_formatter_delivery
 
 
@@ -33,6 +38,96 @@ def _split_csv(value: str) -> list[str]:
 
 def _mock_executor(source: dict, query: dict, timeout_seconds: float) -> dict:
 	return {"results": [{"title": f"{query.get('text', '')}-{source.get('site_id')}"}]}
+
+
+def _normalize_domain(raw_value: str) -> str:
+	value = str(raw_value or "").strip().lower()
+	if value.startswith("http://") or value.startswith("https://"):
+		return urlparse(value).netloc.lower()
+	return value
+
+
+def _site_id_from_domain(domain: str) -> str:
+	# Keep a stable site_id pattern expected by source governance and adapters.
+	base = re.sub(r"[^a-z0-9]+", "_", domain).strip("_")
+	return f"custom_{base}" if base else "custom_site"
+
+
+def _probe_https_reachability(domain: str, timeout_seconds: float = 4.0) -> bool:
+	if not domain:
+		return False
+	url = f"https://{domain}"
+	try:
+		response = httpx.head(url, timeout=timeout_seconds, follow_redirects=True)
+		if response.status_code < 500:
+			return True
+	except Exception:
+		pass
+	try:
+		response = httpx.get(url, timeout=timeout_seconds, follow_redirects=True)
+		return response.status_code < 500
+	except Exception:
+		return False
+
+
+@lru_cache(maxsize=2)
+def _get_easyocr_reader(langs_key: str):
+	import easyocr
+
+	languages = [lang for lang in langs_key.split(",") if lang] or ["pt", "en"]
+	return easyocr.Reader(languages, gpu=False)
+
+
+def _easyocr_invoke(image_bytes: bytes, page_number: int, ocr_config: dict | None = None) -> dict:
+	config = dict(ocr_config or {})
+	langs = list(config.get("languages") or ["pt", "en"])
+	langs_key = ",".join(langs)
+
+	def _deterministic_lines(payload: bytes) -> list[str]:
+		decoded = payload.decode("latin-1", errors="ignore").replace("\x00", " ")
+		lines = [" ".join(line.strip().split()) for line in decoded.splitlines()]
+		lines = [line for line in lines if line]
+		if lines:
+			return lines[:12]
+		return []
+
+	try:
+		import numpy as np
+		from PIL import Image
+
+		img = Image.open(BytesIO(image_bytes)).convert("RGB")
+		reader = _get_easyocr_reader(langs_key)
+		results = reader.readtext(np.array(img), detail=1, paragraph=False)
+	except Exception as exc:
+		fallback_lines = _deterministic_lines(image_bytes)
+		if fallback_lines:
+			return {
+				"lines": fallback_lines,
+				"confidence": 0.55,
+				"error_reason": None,
+			}
+		return {
+			"lines": [],
+			"confidence": 0.0,
+			"error_reason": f"easyocr_error:{type(exc).__name__}",
+		}
+
+	if not results:
+		return {
+			"lines": [],
+			"confidence": 0.0,
+			"error_reason": "easyocr_no_text",
+		}
+
+	lines = [str(item[1]).strip() for item in results if len(item) >= 2 and str(item[1]).strip()]
+	confidences = [float(item[2]) for item in results if len(item) >= 3]
+	avg_conf = (sum(confidences) / len(confidences)) if confidences else 0.0
+
+	return {
+		"lines": lines,
+		"confidence": max(0.0, min(1.0, avg_conf)),
+		"error_reason": None,
+	}
 
 
 def _run_exclusivity_flow(item: dict, active_sources: list[dict]) -> tuple[dict, dict]:
@@ -54,6 +149,11 @@ def _run_exclusivity_flow(item: dict, active_sources: list[dict]) -> tuple[dict,
 
 def health(request: HttpRequest) -> JsonResponse:
 	return JsonResponse({"status": "ok", "phase": "scaffold"})
+
+
+def home(request: HttpRequest):
+	"""Landing page for operational workflow entry points."""
+	return render(request, "web/home.html")
 
 
 def _category_matrix() -> dict[str, dict[str, str]]:
@@ -89,6 +189,7 @@ def upload_workflow(request: HttpRequest):
 				stage_a_result = process_stage_a_ingestion(
 					uploaded_document=uploaded_document,
 					category_matrix_reference=_category_matrix(),
+					ocr_invoke_fn=_easyocr_invoke,
 					include_downstream_validation=True,
 					persist_to_db=True,
 					persistence_notes="uploaded_via_web_workflow",
@@ -134,6 +235,7 @@ def upload_workflow(request: HttpRequest):
 								"item_id": db_item.pk,
 								"line_index": db_item.item_code,
 								"name": db_item.name,
+								"notes": db_item.notes,
 								"category": db_item.category,
 								"isbn": db_item.isbn_normalized,
 								"requires_review": not db_item.search_ready,
@@ -152,6 +254,7 @@ def upload_workflow(request: HttpRequest):
 								"item_id": None,
 								"line_index": item.get("line_index", index),
 								"name": (fields.get("name") or {}).get("value") or item.get("line_text") or item.get("text") or "",
+								"notes": (fields.get("notes") or {}).get("value") or item.get("notes") or "",
 								"category": (fields.get("category") or {}).get("value") or item.get("category") or "",
 								"isbn": (fields.get("isbn") or {}).get("value") or item.get("isbn") or "",
 								"requires_review": bool(item.get("requires_human_review", False)),
@@ -175,10 +278,73 @@ def upload_workflow(request: HttpRequest):
 	)
 
 
+def website_onboarding(request: HttpRequest):
+	"""Onboard source sites with HTTPS probe + trust classification and persistence."""
+	error_message = None
+	success_message = None
+	onboarding_result = None
+
+	if request.method == "POST":
+		domain_input = str(request.POST.get("domain") or "")
+		label = str(request.POST.get("label") or "").strip()
+		trust_signal = str(request.POST.get("trust_signal") or "review_required").strip()
+		integration_type = str(request.POST.get("integration_type") or SourceSite.IntegrationType.SCRAPING).strip().lower()
+		categories = _split_csv(request.POST.get("categories") or "")
+
+		domain = _normalize_domain(domain_input)
+		https_reachable = _probe_https_reachability(domain)
+
+		onboarding_result = evaluate_website_onboarding(
+			{
+				"domain": domain,
+				"label": label or domain,
+				"metadata": {
+					"https_reachable": https_reachable,
+					"trust_signal": trust_signal,
+				},
+			}
+		)
+
+		validation = onboarding_result.get("site_validation_result") or {}
+		if not validation.get("is_valid"):
+			error_message = f"Validation failed: {', '.join(validation.get('errors') or ['unknown_error'])}"
+		else:
+			repo = SourceSiteRepository()
+			site_id = _site_id_from_domain(domain)
+			repo.upsert(
+				site_id=site_id,
+				label=label or domain,
+				trust_status=str(onboarding_result.get("trust_classification_status") or "review_required"),
+				is_search_eligible=bool(onboarding_result.get("activation_eligibility", False)),
+				integration_type=integration_type if integration_type in {"api", "scraping"} else "scraping",
+				categories=categories,
+			)
+			success_message = f"Site onboarded: {site_id}"
+
+	sites = SourceSite.objects.order_by("site_id")[:100]
+
+	return render(
+		request,
+		"web/website_onboarding.html",
+		{
+			"error_message": error_message,
+			"success_message": success_message,
+			"onboarding_result": onboarding_result,
+			"sites": sites,
+		},
+	)
+
+
 def item_search_results(request: HttpRequest, item_id: int):
 	"""Display the top offers for a single CanonicalItem."""
 	item = get_object_or_404(CanonicalItem, pk=item_id)
-	offers = OfferRepository().best_offers_for_item(item, limit=10)
+	latest_search_job = SearchJob.objects.filter(canonical_item=item).order_by("-created_at").first()
+	if latest_search_job is not None:
+		offers = Offer.objects.filter(search_job=latest_search_job).order_by("total_price")[:10]
+		executions = SearchExecutionRepository().list_for_job(latest_search_job)
+	else:
+		offers = Offer.objects.none()
+		executions = []
 
 	workflow_state = None
 	try:
@@ -192,6 +358,8 @@ def item_search_results(request: HttpRequest, item_id: int):
 		{
 			"item": item,
 			"offers": offers,
+			"latest_search_job": latest_search_job,
+			"executions": executions,
 			"workflow_state": workflow_state,
 			"needs_brand_approval": workflow_state is not None and workflow_state.state == WorkflowState.State.BRAND_APPROVAL,
 		},
@@ -203,15 +371,11 @@ def run_item_search(request: HttpRequest, item_id: int):
 	if request.method != "POST":
 		return redirect("item-search-results", item_id=item_id)
 	item = get_object_or_404(CanonicalItem, pk=item_id)
-	if settings.ASYNC_SEARCH_ENABLED:
-		job_runner = get_default_job_runner()
-		job_runner.start()
-		job_runner.submit_search_job(canonical_item_id=item.pk, payload={"source": "run_item_search"})
-	else:
-		try:
-			execute_search_for_item(item)
-		except Exception:
-			pass
+	try:
+		# Manual searches should complete within the request so the user sees the latest result set.
+		execute_search_for_item(item)
+	except Exception:
+		pass
 	return redirect("item-search-results", item_id=item_id)
 
 
@@ -332,6 +496,7 @@ def batch_export_download(request: HttpRequest, batch_id: int):
 				"materialId": material_id,
 				"latestValues": {
 					"name": item.name,
+					"notes": item.notes,
 					"category": item.category,
 					"quantity": str(item.quantity),
 					"unit": item.unit,

@@ -67,7 +67,10 @@
     <tbody>
       {% for row in rows %}
       <tr>
-        <td>{{ row.item.name }}</td>
+        <td>
+          {{ row.item.name }}
+          {% if row.item.notes %}<div class="muted">{{ row.item.notes }}</div>{% endif %}
+        </td>
         <td class="muted">{{ row.item.category }}</td>
         <td class="muted">{{ row.item.isbn_normalized|default:"—" }}</td>
         <td class="muted">{{ row.item.quantity }} {{ row.item.unit }}</td>

@@ -10,3 +10,4 @@ pypdfium2>=4.30.0
 easyocr>=1.7.1
 pytest>=9.0
 pytest-django>=4.12
+selenium>=4.20

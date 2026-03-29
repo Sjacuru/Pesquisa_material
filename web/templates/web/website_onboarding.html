@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Website Onboarding</title>
+  <style>
+    body { font-family: sans-serif; max-width: 980px; margin: 24px auto; padding: 0 16px; }
+    nav { background: #f0f0f0; padding: 8px 12px; margin-bottom: 24px; border-radius: 4px; }
+    nav a { margin-right: 16px; text-decoration: none; color: #0066cc; }
+    label { display: block; margin-top: 10px; font-weight: 600; }
+    input, select { padding: 8px; width: 100%; max-width: 480px; }
+    button { margin-top: 14px; padding: 8px 14px; }
+    .error-box { background: #f8d7da; color: #721c24; padding: 10px 14px; border-radius: 4px; margin-top: 12px; }
+    .success-box { background: #d4edda; color: #155724; padding: 10px 14px; border-radius: 4px; margin-top: 12px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background: #f7f7f7; }
+    code { background: #f2f2f2; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/workflow/upload/">Upload Workflow</a>
+    <a href="/health/">Health JSON</a>
+  </nav>
+
+  <h1>Website Onboarding</h1>
+  <p>This workflow validates domain format, probes <code>https://domain</code>, classifies trust, and stores the site in <code>SourceSite</code>.</p>
+
+  <form method="post">
+    {% csrf_token %}
+    <label for="domain">Domain</label>
+    <input id="domain" name="domain" type="text" placeholder="example.com" required />
+
+    <label for="label">Label</label>
+    <input id="label" name="label" type="text" placeholder="Example Store" />
+
+    <label for="trust_signal">Trust Signal (manual for now)</label>
+    <select id="trust_signal" name="trust_signal">
+      <option value="allowed">allowed</option>
+      <option value="review_required" selected>review_required</option>
+      <option value="blocked">blocked</option>
+    </select>
+
+    <label for="integration_type">Integration Type</label>
+    <select id="integration_type" name="integration_type">
+      <option value="scraping" selected>scraping</option>
+      <option value="api">api</option>
+    </select>
+
+    <label for="categories">Categories (comma-separated)</label>
+    <input id="categories" name="categories" type="text" placeholder="book, notebook, general supplies" />
+
+    <button type="submit">Onboard Website</button>
+  </form>
+
+  {% if error_message %}
+    <div class="error-box">{{ error_message }}</div>
+  {% endif %}
+  {% if success_message %}
+    <div class="success-box">{{ success_message }}</div>
+  {% endif %}
+
+  {% if onboarding_result %}
+    <h2>Last Evaluation Result</h2>
+    <pre>{{ onboarding_result }}</pre>
+  {% endif %}
+
+  <h2>Persisted Source Sites</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Site ID</th>
+        <th>Label</th>
+        <th>Trust</th>
+        <th>Eligible</th>
+        <th>Type</th>
+        <th>Categories</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for site in sites %}
+        <tr>
+          <td>{{ site.site_id }}</td>
+          <td>{{ site.label }}</td>
+          <td>{{ site.trust_status }}</td>
+          <td>{% if site.is_search_eligible %}yes{% else %}no{% endif %}</td>
+          <td>{{ site.integration_type }}</td>
+          <td>{{ site.categories }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6">No sources registered yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

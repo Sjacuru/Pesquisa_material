@@ -47,6 +47,7 @@ class CanonicalItemRepository:
 		category: str,
 		quantity,
 		unit: str,
+		notes: str = "",
 		isbn_normalized: str = "",
 		search_ready: bool = False,
 	) -> CanonicalItem:
@@ -54,6 +55,7 @@ class CanonicalItemRepository:
 			upload_batch=upload_batch,
 			item_code=item_code,
 			name=name,
+			notes=notes,
 			category=category,
 			quantity=quantity,
 			unit=unit,
@@ -283,6 +285,8 @@ def persist_stage_a_result(
 
 		name_value = (fields.get("name") or {}).get("value") or item.get("line_text") or item.get("text") or ""
 		name = str(name_value).strip() or f"Item {index + 1}"
+		notes_value = (fields.get("notes") or {}).get("value") or item.get("notes") or ""
+		notes = str(notes_value).strip()
 
 		category_value = (fields.get("category") or {}).get("value") or item.get("category") or detected_type or "unknown"
 		category = str(category_value).strip() or "unknown"
@@ -309,6 +313,7 @@ def persist_stage_a_result(
 			category=category[:64],
 			quantity=_to_decimal_quantity(quantity_raw),
 			unit=_extract_unit(quantity_raw)[:32],
+			notes=notes,
 			isbn_normalized=isbn_normalized,
 			search_ready=search_ready,
 		)

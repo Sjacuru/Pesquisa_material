@@ -24,6 +24,7 @@ class CanonicalItem(models.Model):
 	upload_batch = models.ForeignKey(UploadBatch, on_delete=models.CASCADE, related_name="items")
 	item_code = models.CharField(max_length=64)
 	name = models.CharField(max_length=255)
+	notes = models.TextField(blank=True, default="")
 	category = models.CharField(max_length=64)
 	quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1)
 	unit = models.CharField(max_length=32, default="un")

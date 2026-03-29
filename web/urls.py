@@ -17,17 +17,21 @@ from web.views import (
 	exclusivity_demo,
 	exclusivity_review,
 	health,
+	home,
 	item_edit,
 	item_search_results,
 	job_status,
 	run_item_search,
 	upload_workflow,
+	website_onboarding,
 )
 
 
 urlpatterns = [
-	path("", health, name="health"),
+	path("", home, name="home"),
+	path("health/", health, name="health"),
 	path("workflow/upload/", upload_workflow, name="upload-workflow"),
+	path("workflow/onboarding/", website_onboarding, name="website-onboarding"),
 	path("workflow/exclusivity/demo/", exclusivity_demo, name="exclusivity-demo"),
 	path("workflow/exclusivity/review/", exclusivity_review, name="exclusivity-review"),
 	path("item/<int:item_id>/search-results/", item_search_results, name="item-search-results"),

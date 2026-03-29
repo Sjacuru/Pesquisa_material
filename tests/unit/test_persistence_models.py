@@ -93,6 +93,10 @@ class CanonicalItemModelTests(TestCase):
         item = _item(self.batch)
         self.assertFalse(item.search_ready)
 
+    def test_default_notes_is_empty_string(self):
+        item = _item(self.batch)
+        self.assertEqual(item.notes, "")
+
     def test_cascade_delete_removes_items(self):
         _item(self.batch)
         self.batch.delete()

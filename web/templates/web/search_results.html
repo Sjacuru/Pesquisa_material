@@ -43,10 +43,22 @@
     {% endif %}
     <tr><th>Quantidade</th><td>{{ item.quantity }} {{ item.unit }}</td></tr>
     <tr><th>Pronto para busca</th><td>{% if item.search_ready %}Sim{% else %}Não (requer revisão){% endif %}</td></tr>
+    {% if latest_search_job %}
+    <tr><th>Última busca</th><td>{{ latest_search_job.status }}</td></tr>
+    {% endif %}
     {% if workflow_state %}
     <tr><th>Estado</th><td>{{ workflow_state.state }}</td></tr>
     {% endif %}
   </table>
+
+  {% if latest_search_job and executions %}
+  <div class="info-box">
+    <strong>Execução mais recente:</strong>
+    {% for execution in executions %}
+      <div class="muted">{{ execution.source_site.label|default:execution.source_site_id|default:"source" }} — {{ execution.status }}{% if execution.error_message %}: {{ execution.error_message|truncatechars:140 }}{% endif %}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   {% if needs_brand_approval %}
   <div class="warning-box">

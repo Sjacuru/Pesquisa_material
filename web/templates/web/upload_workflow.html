@@ -81,7 +81,10 @@
           {% for item in preview_items %}
             <tr>
               <td>{{ item.line_index }}</td>
-              <td>{{ item.name }}</td>
+              <td>
+                {{ item.name }}
+                {% if item.notes %}<div class="muted">{{ item.notes }}</div>{% endif %}
+              </td>
               <td>{{ item.category|default:"-" }}</td>
               <td>{{ item.isbn|default:"-" }}</td>
               <td>{% if item.requires_review %}yes{% else %}no{% endif %}</td>

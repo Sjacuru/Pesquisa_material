@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from io import BytesIO
+
 from intake_canonicalization.confidence_gating_router import split_by_confidence
 from intake_canonicalization.file_type_detection_router import detect_file_type
 from intake_canonicalization.ocr_extraction_processor import extract_with_ocr
@@ -86,6 +88,36 @@ def _normalize_uploaded_document(uploaded_document: dict) -> dict:
 	}
 
 
+def _render_pdf_pages_to_images(pdf_bytes: bytes, max_pages: int = 12) -> list[bytes]:
+	"""Render PDF pages to PNG bytes for OCR routing when images are not pre-supplied."""
+	if not pdf_bytes:
+		return []
+
+	try:
+		import pypdfium2 as pdfium
+	except Exception:
+		return []
+
+	images: list[bytes] = []
+	try:
+		document = pdfium.PdfDocument(pdf_bytes)
+		page_count = len(document)
+		limit = min(page_count, max(1, int(max_pages)))
+		for index in range(limit):
+			page = document[index]
+			bitmap = page.render(scale=2.0)
+			pil_image = bitmap.to_pil()
+			buffer = BytesIO()
+			pil_image.save(buffer, format="PNG")
+			images.append(buffer.getvalue())
+			page.close()
+		document.close()
+	except Exception:
+		return []
+
+	return images
+
+
 def _with_downstream_validation(stage_a_result: dict, include_downstream_validation: bool) -> dict:
 	if not include_downstream_validation:
 		return stage_a_result
@@ -140,6 +172,8 @@ def process_stage_a_ingestion(
 	category_matrix_reference: dict[str, dict[str, str]],
 	directive_runtime_config: dict | None = None,
 	llm_invoke_fn=None,
+	ocr_invoke_fn=None,
+	ocr_config: dict | None = None,
 	audit_log: list[dict] | None = None,
 	llm_call_log: list[dict] | None = None,
 	include_downstream_validation: bool = False,
@@ -199,6 +233,30 @@ def process_stage_a_ingestion(
 		}, include_downstream_validation)
 		return _with_persistence(result, persist_to_db, normalized["filename"], persistence_notes)
 
+	if isinstance(uploaded_document.get("text"), str):
+		extraction_probe = extract_item_candidates(
+			uploaded_pdf_document={
+				"content_type": "application/pdf",
+				"text": uploaded_document["text"],
+			},
+			category_matrix_reference=category_matrix_reference,
+			directive_runtime_config=directive_runtime_config,
+			llm_invoke_fn=llm_invoke_fn,
+			audit_log=audit_log,
+			llm_call_log=llm_call_log,
+			return_metadata=True,
+		)
+	else:
+		extraction_probe = extract_item_candidates(
+			pdf_bytes=normalized["file_bytes"],
+			category_matrix_reference=category_matrix_reference,
+			directive_runtime_config=directive_runtime_config,
+			llm_invoke_fn=llm_invoke_fn,
+			audit_log=audit_log,
+			llm_call_log=llm_call_log,
+			return_metadata=True,
+		)
+
 	pdf_routing = route_pdf_coverage(
 		{
 			"pdf_bytes": normalized["file_bytes"],
@@ -207,22 +265,49 @@ def process_stage_a_ingestion(
 				"upload_id": str(uploaded_document.get("upload_id") or ""),
 				"user_id": uploaded_document.get("user_id"),
 				"extraction_config": {"ocr_enabled": True, "coverage_threshold": 0.70},
+				"extraction_evidence": {
+					"coverage_ratio": extraction_probe.get("coverage_ratio", 0.0),
+					"layout_flags": extraction_probe.get("layout_flags") or {},
+				},
 			},
 		}
 	)
 
+	if extraction_probe.get("extraction_mode") != "failed":
+		result = _with_downstream_validation({
+			"route_mode": pdf_routing.get("route_mode", "native_text"),
+			"detected_type": "pdf",
+			"routing": file_detection,
+			"pdf_routing": pdf_routing,
+			"extracted_items": extraction_probe.get("extracted_items", []),
+			"extraction_mode": extraction_probe.get("extraction_mode"),
+			"extraction_errors": extraction_probe.get("errors", []),
+			"coverage_ratio": extraction_probe.get("coverage_ratio", 0.0),
+		}, include_downstream_validation)
+		return _with_persistence(result, persist_to_db, normalized["filename"], persistence_notes)
+
 	route_mode = pdf_routing.get("route_mode", "native_text")
 	if route_mode == "ocr":
+		document_images = list(uploaded_document.get("document_images") or [])
+		if not document_images:
+			document_images = _render_pdf_pages_to_images(normalized["file_bytes"])
+
+		page_numbers = list(uploaded_document.get("page_numbers") or [])
+		if not page_numbers and document_images:
+			page_numbers = list(range(1, len(document_images) + 1))
+
 		ocr_out = extract_with_ocr(
 			{
-				"document_images": list(uploaded_document.get("document_images") or []),
+				"document_images": document_images,
 				"source_document_id": str(uploaded_document.get("source_document_id") or normalized["filename"]),
 				"context": {
 					"upload_id": str(uploaded_document.get("upload_id") or ""),
-					"page_numbers": list(uploaded_document.get("page_numbers") or []),
+					"page_numbers": page_numbers,
+					"ocr_invoke_fn": ocr_invoke_fn,
 					"ocr_config": {
-						"primary_engine": "tesseract",
-						"fallback_enabled": False,
+						"primary_engine": "easyocr" if callable(ocr_invoke_fn) else "deterministic_fallback",
+						"fallback_enabled": True,
+						**dict(ocr_config or {}),
 					},
 				},
 			}

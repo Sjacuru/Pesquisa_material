@@ -5,7 +5,11 @@
 # DEPENDS_ON: source_adapters/, persistence/repositories.py, search_ranking/query_orchestrator.py
 from __future__ import annotations
 
+import logging
+import os
+import re
 import time
+import unicodedata
 from decimal import Decimal
 
 from persistence.models import CanonicalItem, SearchJob, SourceSite
@@ -17,6 +21,159 @@ from persistence.repositories import (
 )
 from source_adapters.base import AdapterResult
 from source_adapters.category_router import build_query, get_adapters_for_category
+
+
+logger = logging.getLogger(__name__)
+
+
+def _strip_accents(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value)
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch))
+
+
+def _build_query_candidates(item_dict: dict) -> list[str]:
+    name = str(item_dict.get("name") or "").strip()
+    isbn = str(item_dict.get("isbn_normalized") or "").strip()
+    category = str(item_dict.get("category") or "").strip().lower()
+
+    isbn_candidates: list[str] = []
+    name_candidates: list[str] = []
+
+    def _push(buffer: list[str], candidate: str) -> None:
+        value = str(candidate or "").strip()
+        if value and value not in buffer:
+            buffer.append(value)
+
+    if isbn:
+        _push(isbn_candidates, isbn)
+
+    if name:
+        _push(name_candidates, name)
+
+    if category in ("book", "dictionary") and name:
+        name_head = re.split(r"\s+[-|]\s+", name, maxsplit=1)[0].strip()
+        _push(name_candidates, name_head)
+
+    name_ascii = _strip_accents(name)
+    if name_ascii and name_ascii != name:
+        _push(name_candidates, name_ascii)
+
+    # Explicit strategy requested by user: ISBN first, product-name second.
+    candidates = isbn_candidates + name_candidates
+    return candidates or [str(build_query(item_dict) or "").strip()]
+
+
+def _tokenize(text: str) -> list[str]:
+    normalized = _strip_accents(str(text or "").lower())
+    return re.findall(r"[a-z0-9]{3,}", normalized)
+
+
+def _relevance_debug_enabled() -> bool:
+    return os.getenv("SEARCH_RELEVANCE_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _offer_relevance_decision(offer_title: str, query_text: str, isbn: str, item_name: str) -> tuple[bool, str, dict]:
+    offer_title = str(offer_title or "")
+    query_text = str(query_text or "")
+    isbn = str(isbn or "")
+
+    offer_compact = re.sub(r"\D", "", offer_title)
+    isbn_compact = re.sub(r"\D", "", isbn)
+    query_compact = re.sub(r"\D", "", query_text)
+
+    offer_tokens = set(_tokenize(offer_title))
+    query_tokens = set(_tokenize(query_text))
+    item_tokens = set(_tokenize(item_name))
+    query_overlap = len(offer_tokens & query_tokens)
+    item_overlap = len(offer_tokens & item_tokens)
+    long_query_tokens = {t for t in query_tokens if len(t) >= 6}
+    long_overlap = len(offer_tokens & long_query_tokens)
+
+    debug_meta = {
+        "query_overlap": query_overlap,
+        "item_overlap": item_overlap,
+        "long_overlap": long_overlap,
+        "offer_tokens": sorted(offer_tokens),
+        "query_tokens": sorted(query_tokens),
+        "item_tokens": sorted(item_tokens),
+    }
+
+    if isbn_compact and query_compact == isbn_compact and isbn_compact in offer_compact:
+        return True, "isbn_exact_match", debug_meta
+
+    if not offer_tokens:
+        return False, "no_offer_tokens", debug_meta
+
+    if query_tokens and query_overlap >= 2:
+        return True, "query_token_overlap>=2", debug_meta
+    if item_tokens and item_overlap >= 2:
+        return True, "item_token_overlap>=2", debug_meta
+
+    # Accept a single overlap only for long, specific tokens.
+    if long_query_tokens and long_overlap >= 1:
+        return True, "long_query_token_overlap", debug_meta
+
+    return False, "insufficient_overlap", debug_meta
+
+
+def _is_offer_relevant(offer_title: str, query_text: str, isbn: str, item_name: str) -> bool:
+    is_relevant, _, _ = _offer_relevance_decision(
+        offer_title=offer_title,
+        query_text=query_text,
+        isbn=isbn,
+        item_name=item_name,
+    )
+    return is_relevant
+
+
+def _run_adapter_with_fallback(adapter, query_candidates: list[str], timeout_seconds: float) -> tuple[AdapterResult, list[str]]:
+    attempted_queries: list[str] = []
+    last_result = AdapterResult(
+        source_site_id=adapter.site_id,
+        query_text=query_candidates[0] if query_candidates else "",
+        status="empty",
+        offers=[],
+        error_message="",
+        response_ms=0,
+    )
+
+    for query_text in query_candidates:
+        attempted_queries.append(query_text)
+        start = time.monotonic()
+        try:
+            result: AdapterResult = adapter.search(query_text, timeout_seconds=timeout_seconds)
+        except TimeoutError as exc:
+            result = AdapterResult(
+                source_site_id=adapter.site_id,
+                query_text=query_text,
+                status="timeout",
+                offers=[],
+                error_message=str(exc),
+            )
+        except Exception as exc:
+            result = AdapterResult(
+                source_site_id=adapter.site_id,
+                query_text=query_text,
+                status="error",
+                offers=[],
+                error_message=str(exc),
+            )
+
+        if result.response_ms is None:
+            result.response_ms = int((time.monotonic() - start) * 1000)
+        last_result = result
+
+        if result.status == "ok" and result.offers:
+            return result, attempted_queries
+        if result.status == "timeout":
+            return result, attempted_queries
+        if result.status == "error":
+            lower_error = str(result.error_message or "").lower()
+            is_hard_block = any(marker in lower_error for marker in ["403", "503", "forbidden", "captcha", "bot"]) 
+            if is_hard_block:
+                return result, attempted_queries
+
+    return last_result, attempted_queries
 
 
 def execute_search_for_item(
@@ -57,13 +214,15 @@ def execute_search_for_item(
         "quantity": str(canonical_item.quantity),
         "unit": canonical_item.unit,
     }
-    query_text = build_query(item_dict)
+    query_candidates = _build_query_candidates(item_dict)
+    primary_query = query_candidates[0]
     adapters = get_adapters_for_category(canonical_item.category)
 
     offers_found = 0
     errors: list[str] = []
     adapters_queried: list[str] = []
     timeout_count = 0
+    debug_relevance = _relevance_debug_enabled()
 
     for adapter in adapters:
         source_site = _get_source_site(adapter.site_id)
@@ -73,50 +232,56 @@ def execute_search_for_item(
             if not source_site.is_search_eligible:
                 continue
 
-        start = time.monotonic()
-        try:
-            result: AdapterResult = adapter.search(query_text, timeout_seconds=timeout_seconds)
-        except TimeoutError as exc:
-            result = AdapterResult(
-                source_site_id=adapter.site_id,
-                query_text=query_text,
-                status="timeout",
-                offers=[],
-                error_message=str(exc),
-            )
-        except Exception as exc:
-            result = AdapterResult(
-                source_site_id=adapter.site_id,
-                query_text=query_text,
-                status="error",
-                offers=[],
-                error_message=str(exc),
-            )
-        response_ms = int((time.monotonic() - start) * 1000)
+        result, attempted_queries = _run_adapter_with_fallback(
+            adapter=adapter,
+            query_candidates=query_candidates,
+            timeout_seconds=timeout_seconds,
+        )
 
         adapters_queried.append(adapter.site_id)
 
         exec_repo.create(
             search_job=job,
             source_site=source_site,
-            query_text=query_text,
+            query_text=" | ".join(attempted_queries)[:512],
             status=result.status,
             results_count=len(result.offers),
             error_message=result.error_message,
-            response_ms=response_ms,
+            response_ms=result.response_ms,
         )
 
         if result.status == "timeout":
             timeout_count += 1
-            errors.append(f"{adapter.site_id}: {result.error_message or result.status}")
+            errors.append(f"{adapter.site_id}: {result.error_message or result.status} (query={result.query_text})")
             continue
 
         if result.status == "error":
-            errors.append(f"{adapter.site_id}: {result.error_message or result.status}")
+            errors.append(f"{adapter.site_id}: {result.error_message or result.status} (query={result.query_text})")
             continue
 
         for offer_data in result.offers:
             try:
+                is_relevant, reason, debug_meta = _offer_relevance_decision(
+                    offer_title=offer_data.product_title,
+                    query_text=result.query_text,
+                    isbn=canonical_item.isbn_normalized,
+                    item_name=canonical_item.name,
+                )
+                if debug_relevance:
+                    logger.info(
+                        "[relevance] site=%s category=%s query=%r decision=%s reason=%s title=%r overlaps(q=%s,item=%s,long=%s)",
+                        adapter.site_id,
+                        str(canonical_item.category or ""),
+                        result.query_text,
+                        "accept" if is_relevant else "reject",
+                        reason,
+                        offer_data.product_title,
+                        debug_meta["query_overlap"],
+                        debug_meta["item_overlap"],
+                        debug_meta["long_overlap"],
+                    )
+                if not is_relevant:
+                    continue
                 offer_repo.create(
                     canonical_item=canonical_item,
                     source_site=source_site,
@@ -157,13 +322,13 @@ def execute_search_for_item(
         wf_repo.transition(
             canonical_item,
             "brand_approval",
-            state_data={"reason": "no_offers_found", "query": query_text},
+            state_data={"reason": "no_offers_found", "query": primary_query},
         )
     else:
         wf_repo.transition(
             canonical_item,
             "draft",
-            state_data={"offers_found": offers_found, "query": query_text},
+            state_data={"offers_found": offers_found, "query": primary_query},
         )
 
     return {
@@ -172,7 +337,8 @@ def execute_search_for_item(
         "offers_found": offers_found,
         "adapters_queried": adapters_queried,
         "errors": errors,
-        "query": query_text,
+        "query": primary_query,
+        "query_candidates": query_candidates,
     }
 
 

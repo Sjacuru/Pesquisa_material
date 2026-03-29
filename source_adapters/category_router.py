@@ -4,15 +4,19 @@
 #                 and build an optimized query string from item fields.
 from __future__ import annotations
 
+import os
+
 from source_adapters.amazon_adapter import AmazonBRAdapter
 from source_adapters.base import BaseSourceAdapter
 from source_adapters.estante_virtual_adapter import EstanteVirtualAdapter
 from source_adapters.kalunga_adapter import KalungaAdapter
 from source_adapters.magalu_adapter import MagaluAdapter
 from source_adapters.mercadolivre_adapter import MercadoLivreAdapter
+from source_adapters.mock_adapter import MockAdapter
 
 # Registry of all available adapters, keyed by site_id
 _ALL_ADAPTERS: dict[str, BaseSourceAdapter] = {
+	"mock_test": MockAdapter(),  # For testing without website blocking
 	"ml_br": MercadoLivreAdapter(),
 	"ev_br": EstanteVirtualAdapter(),
 	"kalunga_br": KalungaAdapter(),
@@ -21,7 +25,7 @@ _ALL_ADAPTERS: dict[str, BaseSourceAdapter] = {
 }
 
 # Which site_ids to query per category — order matters (first = highest priority)
-_CATEGORY_ROUTES: dict[str, list[str]] = {
+_REAL_CATEGORY_ROUTES: dict[str, list[str]] = {
 	"book":             ["ml_br", "ev_br", "amazon_br"],
 	"dictionary":       ["ml_br", "ev_br", "amazon_br"],
 	"apostila":         ["ml_br", "kalunga_br"],
@@ -30,13 +34,25 @@ _CATEGORY_ROUTES: dict[str, list[str]] = {
 	"unknown":          ["ml_br", "amazon_br"],
 }
 
+_MOCK_CATEGORY_ROUTES: dict[str, list[str]] = {
+	"book":             ["mock_test"],
+	"dictionary":       ["mock_test"],
+	"apostila":         ["mock_test"],
+	"notebook":         ["mock_test"],
+	"general supplies": ["mock_test"],
+	"unknown":          ["mock_test"],
+}
+
+_USE_MOCK_ADAPTERS = os.getenv("USE_MOCK_ADAPTERS", "false").lower() == "true"
+
 # Fallback when category is unrecognised
-_DEFAULT_SITES = ["ml_br", "amazon_br"]
+_DEFAULT_SITES = ["mock_test"] if _USE_MOCK_ADAPTERS else ["ml_br", "amazon_br"]
 
 
 def get_adapters_for_category(category: str) -> list[BaseSourceAdapter]:
 	"""Return the ordered list of adapters to query for the given item category."""
-	site_ids = _CATEGORY_ROUTES.get(category.lower().strip(), _DEFAULT_SITES)
+	routes = _MOCK_CATEGORY_ROUTES if _USE_MOCK_ADAPTERS else _REAL_CATEGORY_ROUTES
+	site_ids = routes.get(category.lower().strip(), _DEFAULT_SITES)
 	return [_ALL_ADAPTERS[sid] for sid in site_ids if sid in _ALL_ADAPTERS]
 
 

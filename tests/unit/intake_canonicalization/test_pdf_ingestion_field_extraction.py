@@ -11,7 +11,7 @@
 
 import pytest
 
-from intake_canonicalization.pdf_ingestion_field_extraction import extract_item_candidates
+from intake_canonicalization.pdf_ingestion_field_extraction import extract_item_candidates, _split_name_and_notes
 
 
 def _category_matrix() -> dict[str, dict[str, str]]:
@@ -36,6 +36,7 @@ def test_ac1_valid_pdf_text_extracts_item_lines_with_fields() -> None:
 	assert "fields" in items[0]
 	assert set(items[0]["fields"].keys()) == {
 		"name",
+		"notes",
 		"category",
 		"quantity",
 		"isbn",
@@ -128,6 +129,7 @@ def test_stage_a_contract_fields_are_present() -> None:
 	assert item["llm_model_id"] is None
 	assert item["directive_extraction_timestamp"] is not None
 	assert isinstance(item["document_notation_rules"], dict)
+	assert "notes" in item["fields"]
 
 
 def test_ac2_applicable_category_field_is_present_per_item() -> None:
@@ -170,3 +172,43 @@ def test_ac1_exclusivity_and_preferences_are_extracted_from_line_notation() -> N
 	assert fields["required_sellers"]["value"] == ["Loja Alpha"]
 	assert fields["preferred_sellers"]["value"] == ["Loja Beta", "Loja Gama"]
 	assert fields["exclusive_source"]["value"] == "document_notation"
+
+
+def test_split_name_and_notes_moves_parenthetical_supply_context_to_notes() -> None:
+	name, notes = _split_name_and_notes(
+		"Caderno espiral ¼ capa dura 48 fls. (Inglês)",
+		"notebook",
+	)
+
+	assert name == "Caderno espiral ¼ capa dura 48 fls"
+	assert notes == "Inglês"
+
+
+def test_split_name_and_notes_moves_book_descriptors_to_notes() -> None:
+	name, notes = _split_name_and_notes(
+		"Bíblia Sagrada – Edição Catequética Popular",
+		"book",
+	)
+
+	assert name == "Bíblia Sagrada"
+	assert notes == "Edição Catequética Popular"
+
+
+def test_split_name_and_notes_moves_dash_color_suffix_to_notes() -> None:
+	name, notes = _split_name_and_notes(
+		"Caneta esferográfica – tinta azul",
+		"general supplies",
+	)
+
+	assert name == "Caneta esferográfica"
+	assert notes == "tinta azul"
+
+
+def test_split_name_and_notes_keeps_niveau_label_in_book_title() -> None:
+	name, notes = _split_name_and_notes(
+		"J’aime 1 - Niveau A1 (cahier d’activités)",
+		"book",
+	)
+
+	assert name == "J’aime 1 - Niveau A1"
+	assert notes == "cahier d’activités"

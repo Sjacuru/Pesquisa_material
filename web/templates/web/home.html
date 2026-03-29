@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Pesquisa Material - Workflow Home</title>
+  <style>
+    body { font-family: sans-serif; max-width: 960px; margin: 24px auto; padding: 0 16px; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 12px; background: #fafafa; }
+    a.button { display: inline-block; padding: 10px 14px; border-radius: 6px; background: #0066cc; color: #fff; text-decoration: none; margin-right: 8px; }
+    a.button.secondary { background: #666; }
+    code { background: #f2f2f2; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Pesquisa Material - Workflow Home</h1>
+  <p>Use this page as your operational entry point. Health check remains available at <code>/health/</code>.</p>
+
+  <div class="card">
+    <h2>Ingestion and Search</h2>
+    <p>Upload a school list and run Stage A ingestion with persistence.</p>
+    <a class="button" href="/workflow/upload/">Open Upload Workflow</a>
+  </div>
+
+  <div class="card">
+    <h2>Website Onboarding</h2>
+    <p>Register source domains, run HTTPS validation, classify trust, and persist source eligibility.</p>
+    <a class="button" href="/workflow/onboarding/">Open Website Onboarding</a>
+  </div>
+
+  <div class="card">
+    <h2>Governance Demos</h2>
+    <a class="button secondary" href="/workflow/exclusivity/demo/">Exclusivity Demo</a>
+    <a class="button secondary" href="/workflow/exclusivity/review/">Exclusivity Manual Review</a>
+  </div>
+</body>
+</html>

@@ -41,11 +41,13 @@ INSTALLED_APPS = [
 	"django.contrib.contenttypes",
 	"django.contrib.staticfiles",
 	"persistence.apps.PersistenceConfig",
+	"web.apps.WebConfig",
 ]
 
 MIDDLEWARE = [
 	"django.middleware.security.SecurityMiddleware",
 	"django.middleware.common.CommonMiddleware",
+	"web.middleware.JobRunnerMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"

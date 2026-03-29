@@ -29,6 +29,82 @@ _USER_AGENT = (
 _MAX_RESULTS = 10
 
 
+def _looks_like_bot_challenge(html: str) -> bool:
+    lowered = str(html or "").lower()
+    markers = [
+        "captcha",
+        "robot check",
+        "type the characters you see",
+        "automated access",
+    ]
+    return any(marker in lowered for marker in markers)
+
+
+def _compact_digits(value: str) -> str:
+    return re.sub(r"\D", "", str(value or ""))
+
+
+def _is_isbn_query(query: str) -> bool:
+    compact = _compact_digits(query)
+    return len(compact) in (10, 13)
+
+
+def _isbn13_to_isbn10(isbn13: str) -> str | None:
+    compact = _compact_digits(isbn13)
+    if len(compact) != 13 or not compact.startswith("978"):
+        return None
+    core = compact[3:12]
+    total = 0
+    for index, ch in enumerate(core, start=1):
+        total += index * int(ch)
+    remainder = total % 11
+    check = "X" if remainder == 10 else str(remainder)
+    return core + check
+
+
+def _isbn_query_variants(query: str) -> list[str]:
+    compact = _compact_digits(query)
+    variants: list[str] = []
+
+    def _push(value: str) -> None:
+        candidate = str(value or "").strip()
+        if candidate and candidate not in variants:
+            variants.append(candidate)
+
+    _push(query)
+    if compact:
+        _push(compact)
+    if len(compact) == 13:
+        isbn10 = _isbn13_to_isbn10(compact)
+        if isbn10:
+            _push(isbn10)
+
+    # Amazon sometimes indexes ISBN queries only when prefixed with the keyword.
+    if compact:
+        _push(f"isbn {compact}")
+
+    return variants
+
+
+def _isbn_signals(query: str) -> list[str]:
+    compact = _compact_digits(query)
+    signals: list[str] = []
+    if compact:
+        signals.append(compact)
+    if len(compact) == 13:
+        isbn10 = _isbn13_to_isbn10(compact)
+        if isbn10:
+            signals.append(isbn10)
+    return signals
+
+
+def _offer_has_isbn_signal(offer: OfferResult, signals: list[str]) -> bool:
+    if not signals:
+        return True
+    searchable = _compact_digits(f"{offer.product_title} {offer.product_url}")
+    return any(signal and signal in searchable for signal in signals)
+
+
 def _parse_brl(raw: str) -> Decimal | None:
     """Parse a Brazilian price string like 'R$ 45,90' or '45.90' into Decimal."""
     cleaned = re.sub(r"[^\d,.]", "", raw or "")
@@ -52,54 +128,76 @@ class AmazonBRAdapter(BaseSourceAdapter):
 
     def search(self, query: str, timeout_seconds: float = 10.0) -> AdapterResult:
         start = time.monotonic()
-        try:
-            response = httpx.get(
-                _SEARCH_URL,
-                params={"k": query, "language": "pt_BR"},
-                timeout=timeout_seconds,
-                headers={
-                    "User-Agent": _USER_AGENT,
-                    "Accept-Language": "pt-BR,pt;q=0.9",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                },
-                follow_redirects=True,
-            )
-            # Amazon returns 200 even for bot-detection pages; check content
-            if response.status_code != 200:
+        isbn_mode = _is_isbn_query(query)
+        query_variants = _isbn_query_variants(query) if isbn_mode else [query]
+        signals = _isbn_signals(query) if isbn_mode else []
+
+        for current_query in query_variants:
+            try:
+                response = httpx.get(
+                    _SEARCH_URL,
+                    params={"k": current_query, "language": "pt_BR"},
+                    timeout=timeout_seconds,
+                    headers={
+                        "User-Agent": _USER_AGENT,
+                        "Accept-Language": "pt-BR,pt;q=0.9",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    },
+                    follow_redirects=True,
+                )
+                # Amazon returns 200 even for bot-detection pages; check content
+                if response.status_code != 200:
+                    return AdapterResult(
+                        source_site_id=self.site_id,
+                        query_text=query,
+                        status="error",
+                        error_message=f"HTTP {response.status_code}",
+                        response_ms=self._elapsed_ms(start),
+                    )
+                html = response.text
+                if _looks_like_bot_challenge(html):
+                    return AdapterResult(
+                        source_site_id=self.site_id,
+                        query_text=query,
+                        status="error",
+                        error_message="bot_challenge_detected",
+                        response_ms=self._elapsed_ms(start),
+                    )
+            except httpx.TimeoutException:
+                return AdapterResult(
+                    source_site_id=self.site_id,
+                    query_text=query,
+                    status="timeout",
+                    error_message="Request timed out",
+                    response_ms=self._elapsed_ms(start),
+                )
+            except Exception as exc:
                 return AdapterResult(
                     source_site_id=self.site_id,
                     query_text=query,
                     status="error",
-                    error_message=f"HTTP {response.status_code}",
+                    error_message=str(exc),
                     response_ms=self._elapsed_ms(start),
                 )
-            html = response.text
-        except httpx.TimeoutException:
-            return AdapterResult(
-                source_site_id=self.site_id,
-                query_text=query,
-                status="timeout",
-                error_message="Request timed out",
-                response_ms=self._elapsed_ms(start),
-            )
-        except Exception as exc:
-            return AdapterResult(
-                source_site_id=self.site_id,
-                query_text=query,
-                status="error",
-                error_message=str(exc),
-                response_ms=self._elapsed_ms(start),
-            )
 
-        response_ms = self._elapsed_ms(start)
-        offers = self._parse_results(html)
+            offers = self._parse_results(html)
+            if isbn_mode and offers:
+                offers = [offer for offer in offers if _offer_has_isbn_signal(offer, signals)]
+            if offers:
+                return AdapterResult(
+                    source_site_id=self.site_id,
+                    query_text=query,
+                    status="ok",
+                    offers=offers,
+                    response_ms=self._elapsed_ms(start),
+                )
 
         return AdapterResult(
             source_site_id=self.site_id,
             query_text=query,
-            status="ok" if offers else "empty",
-            offers=offers,
-            response_ms=response_ms,
+            status="empty",
+            offers=[],
+            response_ms=self._elapsed_ms(start),
         )
 
     def _parse_results(self, html: str) -> list[OfferResult]:
@@ -130,8 +228,15 @@ class AmazonBRAdapter(BaseSourceAdapter):
                     continue
 
                 # Product URL
-                link_el = card.select_one("h2 a.a-link-normal") or card.select_one("h2 a")
+                link_el = (
+                    card.select_one('a[href*="/dp/"]')
+                    or card.select_one('a[href*="/gp/product/"]')
+                    or card.select_one('a.a-link-normal.s-no-outline[href]')
+                    or card.select_one('a.a-link-normal[href]')
+                )
                 href = (link_el.get("href") or "") if link_el else ""
+                if "/sspa/click" in href:
+                    continue
                 if href.startswith("/"):
                     product_url = _BASE_URL + href
                 elif href.startswith("http"):
