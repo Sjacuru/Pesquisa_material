@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import sys
 import time
 from decimal import Decimal, InvalidOperation
 from urllib.parse import quote
@@ -68,12 +70,11 @@ def _looks_like_access_challenge(html: str, final_url: str = "") -> bool:
         "radware bot manager captcha",
         "validate.perfdrive.com",
         "window.ssjsinternal",
-        "shieldsquare",
     ]
     if any(m in lowered or m in url_lower for m in strong_markers):
         return True
 
-    weak_markers = ["cdn.perfdrive.com", "aperture.js"]
+    weak_markers = ["shieldsquare", "cdn.perfdrive.com", "aperture.js"]
     has_weak = any(m in lowered for m in weak_markers)
     has_results = any(
         token in lowered
@@ -103,6 +104,102 @@ def _http_fallback_after_selenium_enabled() -> bool:
         "yes",
         "on",
     }
+
+
+def _use_system_chrome_profile() -> bool:
+    return os.getenv("MAGALU_USE_SYSTEM_CHROME_PROFILE", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _manual_login_assist_enabled() -> bool:
+    return os.getenv("MAGALU_MANUAL_LOGIN_ASSIST", "1").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _looks_like_magalu_login_screen(final_url: str, html: str = "") -> bool:
+    url_lower = str(final_url or "").lower()
+    html_lower = str(html or "").lower()
+    return (
+        "cliente/login" in url_lower
+        or "sacola.magazineluiza.com.br" in url_lower
+        or "fazer login" in html_lower
+    )
+
+
+def _clone_system_chrome_profile_enabled() -> bool:
+    return os.getenv("MAGALU_CLONE_SYSTEM_CHROME_PROFILE", "1").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _safe_copy_tree(src: str, dst: str) -> None:
+    ignored_names = {
+        "SingletonCookie",
+        "SingletonLock",
+        "SingletonSocket",
+        "LOCK",
+        "lockfile",
+        "DevToolsActivePort",
+        "Current Session",
+        "Current Tabs",
+        "Last Session",
+        "Last Tabs",
+    }
+
+    if not os.path.isdir(src):
+        return
+
+    for root, dirs, files in os.walk(src):
+        rel_root = os.path.relpath(root, src)
+        dest_root = dst if rel_root == "." else os.path.join(dst, rel_root)
+        os.makedirs(dest_root, exist_ok=True)
+        dirs[:] = [d for d in dirs if d not in ignored_names]
+        for file_name in files:
+            if file_name in ignored_names:
+                continue
+            src_file = os.path.join(root, file_name)
+            dst_file = os.path.join(dest_root, file_name)
+            try:
+                shutil.copy2(src_file, dst_file)
+            except Exception:
+                continue
+
+
+def _prepare_magalu_profile(system_user_data_dir: str, system_profile_dir: str) -> tuple[str, str]:
+    clone_root = os.getenv(
+        "MAGALU_CLONED_PROFILE_ROOT",
+        os.path.join("var", "browser_profiles", "magalu_system_clone"),
+    )
+    clone_root = os.path.abspath(clone_root)
+    clone_profile_dir = system_profile_dir or "Default"
+
+    if os.path.isdir(clone_root):
+        shutil.rmtree(clone_root, ignore_errors=True)
+    os.makedirs(clone_root, exist_ok=True)
+
+    local_state = os.path.join(system_user_data_dir, "Local State")
+    if os.path.isfile(local_state):
+        try:
+            shutil.copy2(local_state, os.path.join(clone_root, "Local State"))
+        except Exception:
+            pass
+
+    _safe_copy_tree(
+        os.path.join(system_user_data_dir, clone_profile_dir),
+        os.path.join(clone_root, clone_profile_dir),
+    )
+    return clone_root, clone_profile_dir
 
 
 def _offer_from_jsonld(obj: dict, site_id: str) -> OfferResult | None:
@@ -255,6 +352,8 @@ class MagaluAdapter(BaseSourceAdapter):
             from selenium.common.exceptions import TimeoutException as SeleniumTimeoutException  # type: ignore[import-not-found]
             from selenium.webdriver.chrome.options import Options  # type: ignore[import-not-found]
             from selenium.webdriver.common.by import By  # type: ignore[import-not-found]
+            from selenium.webdriver.common.keys import Keys  # type: ignore[import-not-found]
+            from selenium.webdriver.support import expected_conditions as EC  # type: ignore[import-not-found]
             from selenium.webdriver.support.ui import WebDriverWait  # type: ignore[import-not-found]
         except Exception:
             return AdapterResult(
@@ -267,10 +366,29 @@ class MagaluAdapter(BaseSourceAdapter):
 
         headless = os.getenv("MAGALU_SELENIUM_HEADLESS", "1").strip().lower() in {"1", "true", "yes", "on"}
         anti_detection = os.getenv("MAGALU_SELENIUM_ANTI_DETECTION", "1").strip().lower() in {"1", "true", "yes", "on"}
-        profile_dir = os.getenv(
-            "MAGALU_SELENIUM_PROFILE_DIR",
-            os.path.join("var", "browser_profiles", "magalu_selenium"),
+        login_email = os.getenv("MAGALU_GOOGLE_LOGIN_EMAIL", "").strip().lower()
+        manual_login_assist = _manual_login_assist_enabled()
+        manual_login_wait_seconds = max(30, int(os.getenv("MAGALU_MANUAL_LOGIN_WAIT_SECONDS", "300")))
+        system_user_data_dir = os.getenv(
+            "MAGALU_CHROME_USER_DATA_DIR",
+            os.path.join(os.getenv("LOCALAPPDATA", ""), "Google", "Chrome", "User Data"),
         )
+        system_profile_dir = os.getenv("MAGALU_CHROME_PROFILE_DIRECTORY", "Default").strip()
+        if _use_system_chrome_profile() and system_user_data_dir and os.path.isdir(system_user_data_dir):
+            if _clone_system_chrome_profile_enabled():
+                profile_dir, chrome_profile_directory = _prepare_magalu_profile(
+                    system_user_data_dir=system_user_data_dir,
+                    system_profile_dir=system_profile_dir or "Default",
+                )
+            else:
+                profile_dir = system_user_data_dir
+                chrome_profile_directory = system_profile_dir or "Default"
+        else:
+            profile_dir = os.getenv(
+                "MAGALU_SELENIUM_PROFILE_DIR",
+                os.path.join("var", "browser_profiles", "magalu_selenium"),
+            )
+            chrome_profile_directory = os.getenv("MAGALU_SELENIUM_PROFILE_DIRECTORY", "").strip()
         max_attempts = max(1, int(os.getenv("MAGALU_SELENIUM_MAX_ATTEMPTS", "2")))
         os.makedirs(profile_dir, exist_ok=True)
         search_url = _SEARCH_URL.format(query=quote(query))
@@ -285,6 +403,8 @@ class MagaluAdapter(BaseSourceAdapter):
                 else:
                     options.add_argument("--start-maximized")
                 options.add_argument(f"--user-data-dir={os.path.abspath(profile_dir)}")
+                if chrome_profile_directory:
+                    options.add_argument(f"--profile-directory={chrome_profile_directory}")
                 options.add_argument("--no-sandbox")
                 options.add_argument("--disable-dev-shm-usage")
                 options.add_argument("--disable-blink-features=AutomationControlled")
@@ -325,10 +445,106 @@ class MagaluAdapter(BaseSourceAdapter):
                 except Exception:
                     pass
 
-                driver.get(search_url)
+                def submit_home_search() -> None:
+                    search_input = WebDriverWait(driver, min(12, max(3, int(timeout_seconds)))).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="header-search-input"]'))
+                    )
+                    search_input.clear()
+                    search_input.send_keys(query)
+                    search_input.send_keys(Keys.ENTER)
+
+                def wait_for_manual_login(message: str) -> None:
+                    print(message)
+                    is_interactive = False
+                    try:
+                        is_interactive = bool(sys.stdin and sys.stdin.isatty())
+                    except Exception:
+                        is_interactive = False
+
+                    if is_interactive:
+                        try:
+                            input()
+                            print("[magalu] Confirmation received. Resuming automation...")
+                            return
+                        except Exception:
+                            is_interactive = False
+
+                    print(
+                        f"[magalu] Non-interactive session detected. Waiting up to {manual_login_wait_seconds}s for login completion..."
+                    )
+                    deadline = time.monotonic() + float(manual_login_wait_seconds)
+                    while time.monotonic() < deadline:
+                        try:
+                            current_url = driver.current_url or ""
+                            current_html = driver.page_source or ""
+                        except Exception:
+                            time.sleep(2.0)
+                            continue
+                        if not _looks_like_magalu_login_screen(current_url, current_html):
+                            print("[magalu] Login appears completed. Resuming automation...")
+                            return
+                        time.sleep(2.0)
+
+                    print("[magalu] Login wait timeout reached. Attempting to continue...")
+
+                # Preferred flow: search from homepage to avoid immediate anti-bot escalation.
+                try:
+                    submit_home_search()
+                except Exception:
+                    driver.get(search_url)
+
+                # Optional login flow that may appear after search submit.
+                try:
+                    login_span = WebDriverWait(driver, 5).until(
+                        EC.element_to_be_clickable((By.XPATH, "//span[normalize-space()='Fazer login']"))
+                    )
+                    driver.execute_script("arguments[0].click();", login_span)
+                except Exception:
+                    pass
+
+                try:
+                    if login_email:
+                        account_xpath = f"//div[@data-email='{login_email}' or normalize-space()='{login_email}']"
+                    else:
+                        account_xpath = "//div[@data-email]"
+                    account_el = WebDriverWait(driver, 6).until(
+                        EC.element_to_be_clickable((By.XPATH, account_xpath))
+                    )
+                    driver.execute_script("arguments[0].click();", account_el)
+                except Exception:
+                    pass
+
+                # If login page intercepted the search flow, redo the search after login/profile selection.
+                try:
+                    if "cliente/login" in (driver.current_url or "") or "sacola" in (driver.current_url or ""):
+                        if manual_login_assist:
+                            wait_for_manual_login(
+                                "[magalu] Login required. Complete login in the opened browser, then press ENTER here to continue..."
+                            )
+                        driver.get(_HOME_URL)
+                        submit_home_search()
+                except Exception:
+                    pass
+
+                # After optional login, try one more homepage search if results still did not render.
+                try:
+                    WebDriverWait(driver, 8).until(
+                        lambda d: len(d.find_elements(By.CSS_SELECTOR, '[data-testid="product-title"], [data-testid="product-card-container"], [data-testid="product-card"]')) > 0
+                    )
+                except Exception:
+                    try:
+                        if manual_login_assist and _looks_like_magalu_login_screen(driver.current_url or "", driver.page_source or ""):
+                            wait_for_manual_login(
+                                "[magalu] Login screen detected. Complete login in the browser, then press ENTER here to continue..."
+                            )
+                        driver.get(_HOME_URL)
+                        submit_home_search()
+                    except Exception:
+                        pass
+
                 try:
                     WebDriverWait(driver, min(12, max(3, int(timeout_seconds)))).until(
-                        lambda d: len(d.find_elements(By.CSS_SELECTOR, '[data-testid="product-card-container"], [data-testid="product-card"]')) > 0
+                        lambda d: len(d.find_elements(By.CSS_SELECTOR, '[data-testid="product-title"], [data-testid="product-card-container"], [data-testid="product-card"]')) > 0
                     )
                 except SeleniumTimeoutException:
                     pass
@@ -336,6 +552,23 @@ class MagaluAdapter(BaseSourceAdapter):
                 time.sleep(1.5)
                 html = driver.page_source or ""
                 final_url = driver.current_url or ""
+
+                # One more manual assist checkpoint after the final navigation.
+                if manual_login_assist and _looks_like_magalu_login_screen(final_url, html):
+                    wait_for_manual_login(
+                        "[magalu] Login is still required. Complete login in the browser, then press ENTER here to continue..."
+                    )
+                    driver.get(_HOME_URL)
+                    submit_home_search()
+                    try:
+                        WebDriverWait(driver, min(12, max(3, int(timeout_seconds)))).until(
+                            lambda d: len(d.find_elements(By.CSS_SELECTOR, '[data-testid="product-title"], [data-testid="product-card-container"], [data-testid="product-card"]')) > 0
+                        )
+                    except SeleniumTimeoutException:
+                        pass
+                    time.sleep(1.5)
+                    html = driver.page_source or ""
+                    final_url = driver.current_url or ""
             except SeleniumTimeoutException:
                 return AdapterResult(
                     source_site_id=self.site_id,
@@ -449,7 +682,10 @@ class MagaluAdapter(BaseSourceAdapter):
                 if item_price is None or item_price <= 0:
                     continue
 
-                link_el = card.select_one("a[href]")
+                title_link = title_el.find_parent("a", href=True) if title_el else None
+                image_el = card.select_one('[data-testid="image"]')
+                image_link = image_el.find_parent("a", href=True) if image_el else None
+                link_el = title_link or image_link or card.select_one("a[href]")
                 href = (link_el.get("href") or "") if link_el else ""
                 if not href:
                     continue

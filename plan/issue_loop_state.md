@@ -10,9 +10,9 @@ Status values:
 
 ## Current Focus
 
-- Current site: Loop checkpoint (all listed sites classified)
+- Current site: Amazon Brasil (amazon_br)
 - Loop status: partial
-- Objective: prioritize next unblock candidate or quality pass.
+- Objective: quality pass for book coverage, prioritizing ISBN-13 direct retrieval consistency.
 
 ## Site Board
 
@@ -41,10 +41,10 @@ Status values:
   - Next check: monitor ISBN-13 direct misses and rely on upstream name fallback where ISBN-specific results are absent.
 
 - Magalu (magalu_br)
-  - Status: blocked_external
-  - Classification: access_wall_shieldsquare_perfdrive
-  - Evidence: adapter now runs Selenium first (HTTP fallback off by default); controlled validation still lands on validate.perfdrive.com with strong challenge markers.
-  - Next check: retry only from trusted residential egress or deprioritize site in current network.
+  - Status: solved
+  - Classification: browser_retrieval_ok + manual_login_assist_ok + challenge_detector_refined
+  - Evidence: assisted Selenium run for query "Cola bastao" returned status=ok with 10 offers after login handoff, then resumed extraction successfully.
+  - Next check: monitor regressions on repeated runs and preserve manual-login assist as fallback behavior.
 
 ## Update Rules (Mandatory)
 
